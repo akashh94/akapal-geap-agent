@@ -11,6 +11,4 @@ from google.adk.tools.google_search_agent_tool import (
 
 from app.config.models import build_model
 
-google_search_tool = GoogleSearchAgentTool(
-    create_google_search_agent(build_model())
-)
+google_search_tool = GoogleSearchAgentTool(create_google_search_agent(build_model()))
