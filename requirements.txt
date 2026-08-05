@@ -1,4 +1,4 @@
-google-adk[gcp]
+google-adk[gcp]>=2.6.2
 google-cloud-firestore
 python-dotenv
 fastapi
