@@ -83,6 +83,7 @@ async def attach_a2a_routes(
     request_handler = DefaultRequestHandler(
         agent_executor=A2aAgentExecutor(runner=runner),
         task_store=task_store,
+        agent_card=agent_card,
     )
 
     # Use modern A2A SDK factory functions (v1.0+)
