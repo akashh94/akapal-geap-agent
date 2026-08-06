@@ -1,12 +1,13 @@
 import os
 
 from google.adk.agents import LlmAgent
-from google.adk.tools.mcp_tool import McpToolset, SseConnectionParams
+from google.adk.tools.mcp_tool import SseConnectionParams
 
+from app.app_utils.resilient_mcp import ResilientMcpToolset
 from app.config.models import build_model
 from app.prompts.portfolio_prompt import PORTFOLIO_PROMPT
 
-_portfolio_mcp = McpToolset(
+_portfolio_mcp = ResilientMcpToolset(
     connection_params=SseConnectionParams(
         url=os.getenv("MCP_PORTFOLIO_URL", "http://localhost:8080/sse"),
         timeout=10.0,

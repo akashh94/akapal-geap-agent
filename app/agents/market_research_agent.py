@@ -3,13 +3,14 @@ import os
 from google.adk.agents import LlmAgent
 from google.adk.tools import FunctionTool
 from google.adk.tools.load_web_page import load_web_page
-from google.adk.tools.mcp_tool import McpToolset, SseConnectionParams
+from google.adk.tools.mcp_tool import SseConnectionParams
 
+from app.app_utils.resilient_mcp import ResilientMcpToolset
 from app.config.models import build_model
 from app.prompts.market_research_prompt import MARKET_RESEARCH_PROMPT
 from app.tools.google_search_tool import google_search_tool
 
-_market_mcp = McpToolset(
+_market_mcp = ResilientMcpToolset(
     connection_params=SseConnectionParams(
         url=os.getenv("MCP_PORTFOLIO_URL", "http://localhost:8001/sse"),
         timeout=10.0,
