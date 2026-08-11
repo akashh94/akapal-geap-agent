@@ -243,7 +243,7 @@ different values. Each script sources **exactly one** of them:
 
 | Script | Sources | Environment |
 |---|---|---|
-| `./build.sh` / `./deploy.sh` | `deploy.office.env` | Office (default project `labs-gcp-msls-16495-1782829337`, `us-east1`) |
+| `./build.sh` / `./deploy.sh` | `geap.deploy.env` | Office (default project `labs-gcp-msls-16495-1782829337`, `us-east1`) |
 | `./build.personal.sh` / `./deploy.personal.sh` | `deploy.personal.env` | Personal (`adk-tut-499512`, `us-central1`) |
 
 Both files define the same variables (`PROJECT_ID`, `REGION`, `AGENT_MODEL`,
@@ -262,7 +262,7 @@ That single value derives `FINANCIAL_PLANNER_URL`
 supervisor's `call_financial_planner` tool (`app/tools/a2a_planner_tool.py`)
 reads at runtime.
 
-- `deploy.office.env` is committed to version control.
+- `geap.deploy.env` is committed to version control.
 - `deploy.personal.env` is **gitignored** — copy it per-machine and fill in
   your own values.
 

@@ -16,9 +16,9 @@ unset VIRTUAL_ENV
 
 # Office environment config (self-contained): PROJECT_ID / REGION / AGENT_MODEL /
 # MODEL_LOCATION / MCP_PORTFOLIO_URL / FINANCIAL_PLANNER_URL all come from
-# deploy.office.env — the single source of truth for the office deployment.
+# geap.deploy.env — the single source of truth for the office deployment.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$SCRIPT_DIR/deploy.office.env"
+source "$SCRIPT_DIR/geap.deploy.env"
 
 # "agent_runtime" is the target that maps to the Vertex AI Agent Engine /
 # Reasoning Engine resource that geap-poc/server.js already calls
