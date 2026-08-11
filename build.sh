@@ -14,15 +14,13 @@ cd "$PROJECT_ROOT"
 # Unset it so uv uses the project-local .venv instead.
 unset VIRTUAL_ENV
 
-export PROJECT_ID="${PROJECT_ID:-labs-gcp-msls-16495-1782829337}"
-export REGION="${REGION:-us-east1}"
+# Office environment config (self-contained): PROJECT_ID / REGION / AGENT_MODEL /
+# MODEL_LOCATION / MCP_PORTFOLIO_URL / FINANCIAL_PLANNER_URL all come from
+# deploy.office.env — the single source of truth for the office deployment.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/deploy.office.env"
 
 gcloud config set project "$PROJECT_ID"
-
-# Matches cloud-shell-deploy.sh's build_model() defaults; override before
-# running if you want the deployed agent to use a different model/location.
-export AGENT_MODEL="${AGENT_MODEL:-gemini-3.5-flash}"
-export MODEL_LOCATION="${MODEL_LOCATION:-global}"
 
 if ! command -v uv >/dev/null 2>&1; then
   echo "uv not found; installing..."
