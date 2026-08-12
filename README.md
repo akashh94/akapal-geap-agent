@@ -122,7 +122,10 @@ Streaming clients use `SendStreamingMessage`. The A2A routes share the same
 | `GOOGLE_CLOUD_LOCATION` | — | GCP region |
 | `AGENT_MODEL` | `gemini-2.5-flash` | Model used by all agents |
 | `MODEL_LOCATION` | `global` | Vertex AI endpoint location for model calls |
-| `MCP_PORTFOLIO_URL` | `http://localhost:8080/sse` | MCP portfolio server (SSE) |
+| `MCP_PORTFOLIO_URL` | `http://localhost:8080/sse` | MCP portfolio server (SSE, fallback) |
+| `MCP_REGISTRY_PROJECT_ID` | `$PROJECT_ID` | GCP project hosting the API Registry |
+| `MCP_REGISTRY_LOCATION` | `global` | Location of the API Registry resources |
+| `MCP_REGISTRY_SERVER` | — | Full name of the registered MCP server (`projects/.../locations/.../mcpServers/...`); when set, agents connect via API Registry instead of the raw SSE URL |
 | `FINANCIAL_PLANNER_URL` | `https://PLACEHOLDER...` | A2A agent-card URL of the remote financial planner (Agent Engine passthrough) |
 | `APP_URL` | `http://0.0.0.0:8000` | Base URL advertised on the A2A agent card |
 | `AGENT_VERSION` | `0.1.0` | Version advertised on the A2A agent card |
@@ -153,10 +156,17 @@ Streaming clients use `SendStreamingMessage`. The A2A routes share the same
 
 - **`MCP_PORTFOLIO_URL`** — SSE URL of the MCP portfolio server used by the
   portfolio/trade/market-research/support agents via `ResilientMcpToolset`.
-  Default `http://localhost:8080/sse` for local dev. In the deployed personal
-  project this is `https://mcp-portfolio-a3wvlai7eq-uc.a.run.app/sse`. The
-  agents degrade gracefully (an informational tool) if the server is
-  unreachable — they won't crash the turn.
+  Default `http://localhost:8080/sse` for local dev. Used as a fallback when
+  `MCP_REGISTRY_SERVER` is not set. The agents degrade gracefully (an
+  informational tool) if the server is unreachable — they won't crash the turn.
+
+- **`MCP_REGISTRY_SERVER`** (plus `MCP_REGISTRY_PROJECT_ID` /
+  `MCP_REGISTRY_LOCATION`) — when set, the agents connect to the portfolio MCP
+  server through the Google Cloud **API Registry** instead of the raw SSE URL.
+  The value is the full resource name of the registered MCP server, e.g.
+  `projects/<project>/locations/<location>/mcpServers/mcp-portfolio`. The
+  registry provides discovery and auth for the MCP endpoint (streamable HTTP
+  at `/mcp`). See `app/app_utils/api_registry_mcp.py`.
 
 - **`FINANCIAL_PLANNER_URL`** — A2A agent-card URL of the separately-deployed
   financial planner that the supervisor reaches through the

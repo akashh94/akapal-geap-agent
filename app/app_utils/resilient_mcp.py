@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 import time
+from collections.abc import Callable
 
 from google.adk.agents.readonly_context import ReadonlyContext
 from google.adk.tools import FunctionTool
@@ -26,13 +27,13 @@ DEFAULT_COOLDOWN_SECONDS = 30.0
 _UNAVAILABLE_TOOL_NAME = "portfolio_service_unavailable"
 
 
-def _unavailable_tool(server_url: str) -> FunctionTool:
+def _unavailable_tool(source: str) -> FunctionTool:
     """Build a no-op tool that reports the MCP server is unreachable."""
 
-    def _check(url: str = server_url) -> str:
+    def _check(src: str = source) -> str:
         return (
             "The portfolio data service is currently unavailable "
-            f"(could not connect to {url}). "
+            f"(could not reach {src}). "
             "Do not invent portfolio numbers; tell the user the service is "
             "temporarily down and ask them to try again later."
         )
@@ -62,21 +63,32 @@ class ResilientMcpToolset(BaseToolset):
     def __init__(
         self,
         *,
-        connection_params,
+        connection_params=None,
+        toolset_factory: Callable[[], BaseToolset] | None = None,
         cooldown_seconds: float = DEFAULT_COOLDOWN_SECONDS,
         **kwargs,
     ) -> None:
         super().__init__()
+        if (connection_params is None) == (toolset_factory is None):
+            raise ValueError(
+                "Provide exactly one of connection_params or toolset_factory."
+            )
         self._connection_params = connection_params
+        self._toolset_factory = toolset_factory
         self._cooldown_seconds = cooldown_seconds
         self._kwargs = kwargs
-        self._toolset: McpToolset | None = None
+        self._toolset: BaseToolset | None = None
         self._unavailable_since: float | None = None
         self._last_error: Exception | None = None
 
-    def _get_toolset(self) -> McpToolset:
+    def _get_toolset(self) -> BaseToolset:
         if self._toolset is None:
-            self._toolset = McpToolset(connection_params=self._connection_params, **self._kwargs)
+            if self._toolset_factory is not None:
+                self._toolset = self._toolset_factory()
+            else:
+                self._toolset = McpToolset(
+                    connection_params=self._connection_params, **self._kwargs
+                )
         return self._toolset
 
     async def get_tools(
@@ -113,8 +125,11 @@ class ResilientMcpToolset(BaseToolset):
             return tools
 
     def _unavailable(self) -> FunctionTool:
-        url = getattr(self._connection_params, "url", str(self._connection_params))
-        return _unavailable_tool(url)
+        if self._connection_params is not None:
+            source = getattr(self._connection_params, "url", str(self._connection_params))
+        else:
+            source = "MCP server"
+        return _unavailable_tool(source)
 
     async def close(self) -> None:
         """Release the underlying MCP session, if one was created."""

@@ -1,19 +1,11 @@
-import os
-
 from google.adk.agents import LlmAgent
-from google.adk.tools.mcp_tool import SseConnectionParams
 
-from app.app_utils.resilient_mcp import ResilientMcpToolset
+from app.app_utils.api_registry_mcp import build_portfolio_mcp_toolset
 from app.config.models import build_model
 from app.prompts.support_prompt import SUPPORT_PROMPT
 from app.tools.google_search_tool import google_search_tool
 
-_support_mcp = ResilientMcpToolset(
-    connection_params=SseConnectionParams(
-        url=os.getenv("MCP_PORTFOLIO_URL", "http://localhost:8001/sse"),
-        timeout=10.0,
-    ),
-)
+_support_mcp = build_portfolio_mcp_toolset()
 
 support_agent = LlmAgent(
     name="customer_support",
