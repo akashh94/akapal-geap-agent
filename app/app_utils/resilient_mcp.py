@@ -126,7 +126,9 @@ class ResilientMcpToolset(BaseToolset):
 
     def _unavailable(self) -> FunctionTool:
         if self._connection_params is not None:
-            source = getattr(self._connection_params, "url", str(self._connection_params))
+            source = getattr(
+                self._connection_params, "url", str(self._connection_params)
+            )
         else:
             source = "MCP server"
         return _unavailable_tool(source)

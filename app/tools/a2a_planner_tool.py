@@ -109,9 +109,7 @@ async def call_financial_planner(request: str) -> str:
             parts=[Part(text=request)],
         )
         texts: list[str] = []
-        async for chunk in a2a_client.send_message(
-            SendMessageRequest(message=message)
-        ):
+        async for chunk in a2a_client.send_message(SendMessageRequest(message=message)):
             # chunk is a protobuf message; collect text from artifact parts.
             artifact_update = getattr(chunk, "artifact_update", None)
             if artifact_update is not None:
@@ -126,9 +124,7 @@ async def call_financial_planner(request: str) -> str:
                     for part in msg.parts:
                         if part.text:
                             texts.append(part.text)
-        return "\n".join(texts).strip() or (
-            "The financial planner returned no answer."
-        )
+        return "\n".join(texts).strip() or ("The financial planner returned no answer.")
     except Exception as exc:  # noqa: BLE001 - surface a helpful error to the LLM
         logging.warning("call_financial_planner failed: %s", exc, exc_info=True)
         return f"The financial planner could not answer: {exc}"
