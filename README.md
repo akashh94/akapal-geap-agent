@@ -11,10 +11,10 @@ web/API surface and the A2A (Agent2Agent) protocol.
 - **`app/agents/supervisor.py`** — the `supervisor` root agent that routes to sub-agents.
 - **`app/agents/`** — specialist agents: `portfolio_analyst`, `trade_assistant`,
   `market_research`, `customer_support`, `mortgage_agent`.
-- **`app/tools/a2a_planner_tool.py`** — `call_financial_planner` tool: delegates
-  financial-planning questions to the remote planner via the **a2a-sdk client**
-  against the planner's Agent Engine A2A passthrough (Bearer-token auth, card
-  URL rewrite to the public passthrough base).
+- **`app/agents/financial_planner_agent.py`** — `financial_planner` sub-agent
+  (ADK `RemoteA2aAgent`): delegates financial-planning questions to the remote
+  planner via ADK's built-in A2A client (Bearer-token auth, lazy card
+  resolution).
 - **`app/fast_api_app.py`** — FastAPI app wiring the runner, sessions, A2A routes,
   `/feedback` endpoint, and Cloud Logging.
 - **`app/app_utils/a2a.py`** — `attach_a2a_routes()`: registers the A2A agent card and
@@ -170,19 +170,21 @@ Streaming clients use `SendStreamingMessage`. The A2A routes share the same
 
 - **`FINANCIAL_PLANNER_URL`** — A2A agent-card URL of the separately-deployed
   financial planner that the supervisor reaches through the
-  `call_financial_planner` tool (`app/tools/a2a_planner_tool.py`). For a
-  planner on **Vertex AI Agent Engine**, this is the HTTP passthrough card URL:
+  `financial_planner` sub-agent (`app/agents/financial_planner_agent.py`). The
+  planner is deployed to **Vertex AI Agent Engine** as an `A2aAgent` (Model B),
+  which hosts its agent card natively at the public A2A passthrough URL:
 
   ```
-  https://<location>-aiplatform.googleapis.com/reasoningEngines/v1/
-    projects/<project>/locations/<location>/reasoningEngines/<id>/
-    api/a2a/financial_planner/.well-known/agent-card.json
+  https://<location>-aiplatform.googleapis.com/v1beta1/
+    projects/<project>/locations/<location>/reasoningEngines/<id>/a2a/
+    .well-known/agent-card.json
   ```
 
-  The tool authenticates with a Bearer token from ambient credentials and
-  rewrites the card's advertised (internal) URL to the public passthrough base
-  before sending. The placeholder default fails loudly on first use until you
-  set it. Each call uses a fresh message/task (stateless by design).
+  The sub-agent authenticates with a Bearer token from ambient credentials and
+  resolves the card lazily via `RemoteA2aAgent` — the card's advertised URL is
+  the correct public endpoint, so no rewriting is needed. The placeholder
+  default fails loudly on first use until you set it. Each call uses a fresh
+  message/task (stateless by design).
 
 - **`APP_URL`** — Base URL advertised on the A2A agent card (used to build the
   card's `rpcUrl`). Default `http://0.0.0.0:8000`; set it to the deployed
@@ -264,13 +266,16 @@ financial planner, edit **only** that environment's file:
 
 ```bash
 # deploy.personal.env — the planner's Agent Engine A2A passthrough base
-FINANCIAL_PLANNER_BASE_URL=https://<location>-aiplatform.googleapis.com/reasoningEngines/v1/projects/<project>/locations/<location>/reasoningEngines/<id>/api/a2a/financial_planner
+FINANCIAL_PLANNER_BASE_URL=https://<location>-aiplatform.googleapis.com/v1beta1/projects/<project>/locations/<location>/reasoningEngines/<id>/a2a
 ```
 
 That single value derives `FINANCIAL_PLANNER_URL`
 (`${FINANCIAL_PLANNER_BASE_URL}/.well-known/agent-card.json`), which the
-supervisor's `call_financial_planner` tool (`app/tools/a2a_planner_tool.py`)
-reads at runtime.
+supervisor's `financial_planner` sub-agent
+(`app/agents/financial_planner_agent.py`) reads at runtime. The base is the
+Model B A2A passthrough URL
+(`.../reasoningEngines/<id>/a2a`), where the planner's `A2aAgent` hosts its
+card natively.
 
 - `geap.deploy.env` is committed to version control.
 - `deploy.personal.env` is **gitignored** — copy it per-machine and fill in
