@@ -14,9 +14,15 @@ import time
 from collections.abc import Callable
 
 from google.adk.agents.readonly_context import ReadonlyContext
-from google.adk.tools import FunctionTool
+from google.adk.tools import BaseTool, FunctionTool
 from google.adk.tools.base_toolset import BaseToolset
 from google.adk.tools.mcp_tool import McpToolset
+from google.adk.tools.mcp_tool.mcp_session_manager import (
+    SseConnectionParams,
+    StdioConnectionParams,
+    StreamableHTTPConnectionParams,
+)
+from mcp import StdioServerParameters
 
 logger = logging.getLogger(__name__)
 
@@ -63,7 +69,8 @@ class ResilientMcpToolset(BaseToolset):
     def __init__(
         self,
         *,
-        connection_params=None,
+        connection_params: StdioServerParameters | StdioConnectionParams | SseConnectionParams | StreamableHTTPConnectionParams
+        | None = None,
         toolset_factory: Callable[[], BaseToolset] | None = None,
         cooldown_seconds: float = DEFAULT_COOLDOWN_SECONDS,
         **kwargs,
@@ -86,6 +93,9 @@ class ResilientMcpToolset(BaseToolset):
             if self._toolset_factory is not None:
                 self._toolset = self._toolset_factory()
             else:
+                # __init__ guarantees exactly one of connection_params or
+                # toolset_factory is set, so this branch implies non-None.
+                assert self._connection_params is not None
                 self._toolset = McpToolset(
                     connection_params=self._connection_params, **self._kwargs
                 )
@@ -93,7 +103,7 @@ class ResilientMcpToolset(BaseToolset):
 
     async def get_tools(
         self, readonly_context: ReadonlyContext | None = None
-    ) -> list[FunctionTool]:
+    ) -> list[BaseTool]:
         now = time.monotonic()
         # If we're inside the cooldown window, don't attempt a reconnect.
         if (
