@@ -35,6 +35,9 @@ htmlcov/
 deployment_metadata.json
 artifacts/
 
+# WhatsApp images
+*.jpeg
+
 # OS / editor
 .DS_Store
 Thumbs.db
