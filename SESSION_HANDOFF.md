@@ -141,6 +141,46 @@ benign ADK warning, not an error.)
 - `bash.exe` is the WSL launcher (no distro) — use PowerShell for everything
 - `docker run ... python -c "..."` nested quotes break — write scripts to files instead
 
+## Minimum IAM roles by deployment
+
+### 1. MCP portfolio — Cloud Run (`akapal-mcp-portfolio`)
+Deployer (the human/user account running `build.personal.sh` + `deploy.personal.sh`):
+- `roles/run.admin` — `gcloud run deploy`
+- `roles/iam.serviceAccountUser` — Cloud Run deploy acts as the runtime SA
+- `roles/artifactregistry.admin` — create/push to the Artifact Registry repo
+- `roles/storage.admin` — Cloud Build artifacts + logs staging
+- `roles/cloudbuild.builds.editor` — `gcloud builds submit`
+- `roles/iam.securityAdmin` (or `roles/iam.roleAdmin`) — only if the script's `gcloud agent-registry services create` / IAM grant steps need role changes; otherwise the pre-created SA + `roles/agentregistry.admin` covers it
+
+Runtime (the service's own identity — Cloud Run SA):
+- `roles/cloudrun.serviceAgent` — granted automatically by Cloud Run; nothing extra needed for a self-contained service (portfolio serves mock data)
+
+### 2. Financial planner — Cloud Run (`akapal-geap-financial-planner`)
+Deployer (user account):
+- `roles/run.admin` — `gcloud run deploy`
+- `roles/iam.serviceAccountUser` — deploy acts as the runtime SA
+- `roles/artifactregistry.admin` — push image
+- `roles/artifactregistry.reader` — Cloud Run pulls the image
+
+Runtime (Cloud Run SA):
+- `roles/aiplatform.user` — calls Gemini via Vertex AI (`client_kwargs={"vertexai": True}`) and the MCP portfolio is `--allow-unauthenticated` so no extra grant needed there
+
+### 3. Supervisor — Vertex AI Agent Engine (`akapal-geap-agent`)
+Deployer (user account):
+- `roles/aiplatform.user` (or `roles/aiplatform.admin`) — `agents-cli deploy` creates/updates the reasoning engine
+- `roles/artifactregistry.admin` + `roles/artifactregistry.reader` — engine build container in Artifact Registry
+- `roles/iam.serviceAccountUser` — engine deploy acts as the Agent Runtime SA
+- `roles/storage.objectAdmin` — agents-cli stages source to `gs://geap-agent` (STAGING_BUCKET)
+
+Runtime — the **Agent Runtime service agent** (`service-947331501288@gcp-sa-aiplatform-re.iam.gserviceaccount.com`):
+- `roles/aiplatform.user` — this SA calls Gemini AND invokes the planner's engine (this was the 403 fix in TROUBLESHOOTING §7)
+- `roles/run.invoker` — ONLY if the planner Cloud Run service is switched from `--allow-unauthenticated` to authenticated (currently it's allow-unauthenticated, so not needed)
+
+### Cross-cutting notes
+- **Model B (deploy_a2a.py)**, if ever revived, needs the same as #3 plus `roles/storage.objectAdmin` on the staging bucket (already listed).
+- The planner Cloud Run service is `--allow-unauthenticated`, so the supervisor SA needs **no** `roles/run.invoker` today — re-add it if you lock the service down.
+- `roles/aiplatform.reasoningEngineUser` is **not supported** on reasoning engines (400) — use `roles/aiplatform.user` instead.
+
 ## Known remaining work
 1. **IAM on the planner**: the planner Cloud Run service is `--allow-unauthenticated`, so no IAM needed. If the supervisor's tool call 403s on the planner, verify the planner service is still allow-unauthenticated (or grant `roles/run.invoker` to `service-947331501288@gcp-sa-aiplatform-re.iam.gserviceaccount.com`).
 2. **Stale engines cleaned up** (2026-08-18): deleted `2088431627251220480`, `2889157567248859136`, `4185068360024719360`, `7964503241062875136`. Kept:
