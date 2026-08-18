@@ -11,10 +11,9 @@ web/API surface and the A2A (Agent2Agent) protocol.
 - **`app/agents/supervisor.py`** — the `supervisor` root agent that routes to sub-agents.
 - **`app/agents/`** — specialist agents: `portfolio_analyst`, `trade_assistant`,
   `market_research`, `customer_support`, `mortgage_agent`.
-- **`app/agents/financial_planner_agent.py`** — `financial_planner` sub-agent
-  (ADK `RemoteA2aAgent`): delegates financial-planning questions to the remote
-  planner via ADK's built-in A2A client (Bearer-token auth, lazy card
-  resolution).
+- **`app/tools/a2a_planner_tool.py`** — `call_financial_planner` FunctionTool:
+  delegates financial-planning questions to the remote planner over A2A
+  (a2a-sdk client, Bearer auth, card discovery).
 - **`app/fast_api_app.py`** — FastAPI app wiring the runner, sessions, A2A routes,
   `/feedback` endpoint, and Cloud Logging.
 - **`app/app_utils/a2a.py`** — `attach_a2a_routes()`: registers the A2A agent card and
@@ -122,7 +121,7 @@ Streaming clients use `SendStreamingMessage`. The A2A routes share the same
 | `GOOGLE_CLOUD_LOCATION` | — | GCP region |
 | `AGENT_MODEL` | `gemini-2.5-flash` | Model used by all agents |
 | `MODEL_LOCATION` | `global` | Vertex AI endpoint location for model calls |
-| `MCP_PORTFOLIO_URL` | `http://localhost:8080/sse` | MCP portfolio server (SSE, fallback) |
+| `MCP_PORTFOLIO_URL` | `http://localhost:8080/sse` | MCP portfolio server (SSE for local dev; Streamable HTTP `/mcp` when deployed) |
 | `MCP_REGISTRY_PROJECT_ID` | `$PROJECT_ID` | GCP project hosting the API Registry |
 | `MCP_REGISTRY_LOCATION` | `global` | Location of the API Registry resources |
 | `MCP_REGISTRY_SERVER` | — | Full name of the registered MCP server (`projects/.../locations/.../mcpServers/...`); when set, agents connect via API Registry instead of the raw SSE URL |
@@ -154,11 +153,13 @@ Streaming clients use `SendStreamingMessage`. The A2A routes share the same
   throttling on regional endpoints. The Agent Engine instance still lives in
   its configured region; only model requests go global.
 
-- **`MCP_PORTFOLIO_URL`** — SSE URL of the MCP portfolio server used by the
+- **`MCP_PORTFOLIO_URL`** — URL of the MCP portfolio server used by the
   portfolio/trade/market-research/support agents via `ResilientMcpToolset`.
   Default `http://localhost:8080/sse` for local dev. Used as a fallback when
   `MCP_REGISTRY_SERVER` is not set. The agents degrade gracefully (an
   informational tool) if the server is unreachable — they won't crash the turn.
+  The deployed portfolio server is Streamable HTTP at
+  `https://mcp-portfolio-947331501288.us-central1.run.app/mcp`.
 
 - **`MCP_REGISTRY_SERVER`** (plus `MCP_REGISTRY_PROJECT_ID` /
   `MCP_REGISTRY_LOCATION`) — when set, the agents connect to the portfolio MCP
@@ -170,20 +171,17 @@ Streaming clients use `SendStreamingMessage`. The A2A routes share the same
 
 - **`FINANCIAL_PLANNER_URL`** — A2A agent-card URL of the separately-deployed
   financial planner that the supervisor reaches through the
-  `financial_planner` sub-agent (`app/agents/financial_planner_agent.py`). The
-  planner is deployed to **Vertex AI Agent Engine** as an `A2aAgent` (Model B),
-  which hosts its agent card natively at the public A2A passthrough URL:
+  `call_financial_planner` tool (`app/tools/a2a_planner_tool.py`). The
+  planner runs on **Cloud Run** (Model A) serving A2A at
+  `/a2a/financial_planner`, with the standard card at:
 
   ```
-  https://<location>-aiplatform.googleapis.com/v1beta1/
-    projects/<project>/locations/<location>/reasoningEngines/<id>/a2a/
+  https://<service>-<hash>.<region>.run.app/a2a/financial_planner/
     .well-known/agent-card.json
   ```
 
-  The sub-agent authenticates with a Bearer token from ambient credentials and
-  resolves the card lazily via `RemoteA2aAgent` — the card's advertised URL is
-  the correct public endpoint, so no rewriting is needed. The placeholder
-  default fails loudly on first use until you set it. Each call uses a fresh
+  The tool authenticates with a Bearer token from ambient credentials and
+  sends JSON-RPC `SendMessage` via the a2a-sdk client. Each call uses a fresh
   message/task (stateless by design).
 
 - **`APP_URL`** — Base URL advertised on the A2A agent card (used to build the
@@ -238,6 +236,9 @@ Helper scripts are provided (run in Cloud Shell):
 - `./build.sh` — installs `uv` + `agents-cli`, runs `agents-cli install` and lint.
 - `./deploy.sh` — deploys via `agents-cli deploy --deployment-target agent_runtime`,
   overriding `AGENT_MODEL` / `MODEL_LOCATION` / `MCP_PORTFOLIO_URL` / `FINANCIAL_PLANNER_URL`.
+  Both deploy scripts pin the engine to a single replica (`--min-instances 1
+  --max-instances 1`) so the in-memory session service (see below) sees a stable
+  process. Remove the flags to allow autoscaling (default max 10).
 
 For the personal `akapal-geap-ui` project (`adk-tut-499512` / `us-central1`,
 Artifact Registry repo `akapal-geap-ui`):
@@ -246,7 +247,7 @@ Artifact Registry repo `akapal-geap-ui`):
   `akapal-geap-ui` Artifact Registry repo exists in the deploy region.
 - `./deploy.personal.sh` — deploys with `AGENT_MODEL=gemini-2.5-flash`
   (the cheapest Gemini text model) and the project's own MCP portfolio
-  service (`mcp-portfolio-a3wvlai7eq-uc.a.run.app`).
+  service (`mcp-portfolio-947331501288.us-central1.run.app`).
 
 ### Two environments, two self-contained env files
 
@@ -265,17 +266,16 @@ picks which environment it deploys to. To point an environment at a different
 financial planner, edit **only** that environment's file:
 
 ```bash
-# deploy.personal.env — the planner's Agent Engine A2A passthrough base
-FINANCIAL_PLANNER_BASE_URL=https://<location>-aiplatform.googleapis.com/v1beta1/projects/<project>/locations/<location>/reasoningEngines/<id>/a2a
+# deploy.personal.env — the planner's Cloud Run A2A base (Model A)
+FINANCIAL_PLANNER_BASE_URL=https://<service>-<hash>.<region>.run.app/a2a/financial_planner
 ```
 
 That single value derives `FINANCIAL_PLANNER_URL`
 (`${FINANCIAL_PLANNER_BASE_URL}/.well-known/agent-card.json`), which the
-supervisor's `financial_planner` sub-agent
-(`app/agents/financial_planner_agent.py`) reads at runtime. The base is the
-Model B A2A passthrough URL
-(`.../reasoningEngines/<id>/a2a`), where the planner's `A2aAgent` hosts its
-card natively.
+supervisor's `call_financial_planner` tool
+(`app/tools/a2a_planner_tool.py`) reads at runtime. The base is the
+planner's Cloud Run A2A endpoint
+(`https://<service>-<hash>.<region>.run.app/a2a/financial_planner`).
 
 - `geap.deploy.env` is committed to version control.
 - `deploy.personal.env` is **gitignored** — copy it per-machine and fill in

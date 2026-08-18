@@ -69,8 +69,13 @@ class ResilientMcpToolset(BaseToolset):
     def __init__(
         self,
         *,
-        connection_params: StdioServerParameters | StdioConnectionParams | SseConnectionParams | StreamableHTTPConnectionParams
-        | None = None,
+        connection_params: (
+            StdioServerParameters
+            | StdioConnectionParams
+            | SseConnectionParams
+            | StreamableHTTPConnectionParams
+            | None
+        ) = None,
         toolset_factory: Callable[[], BaseToolset] | None = None,
         cooldown_seconds: float = DEFAULT_COOLDOWN_SECONDS,
         **kwargs,

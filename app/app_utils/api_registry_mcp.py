@@ -1,9 +1,9 @@
 """Build a resilient MCP toolset for the portfolio data server.
 
 Connects to the portfolio MCP server through the Google Cloud API Registry
-when ``MCP_REGISTRY_SERVER`` is set, and falls back to a direct SSE connection
-(``MCP_PORTFOLIO_URL``) otherwise so local development keeps working without
-a registry.
+when ``MCP_REGISTRY_SERVER`` is set, and falls back to a direct Streamable
+HTTP connection (``MCP_PORTFOLIO_URL``) otherwise so local development keeps
+working without a registry.
 
 The returned :class:`ResilientMcpToolset` degrades gracefully when the MCP
 server is unreachable (see ``app.app_utils.resilient_mcp``).
@@ -21,8 +21,8 @@ from app.app_utils.resilient_mcp import ResilientMcpToolset
 
 logger = logging.getLogger(__name__)
 
-#: Default SSE URL for local development (no registry).
-_DEFAULT_LOCAL_MCP_URL = "http://localhost:8080/sse"
+#: Default Streamable HTTP URL for local development (no registry).
+_DEFAULT_LOCAL_MCP_URL = "http://localhost:8080/mcp"
 
 
 def _build_registry_toolset() -> BaseToolset:
@@ -72,12 +72,12 @@ def build_portfolio_mcp_toolset() -> ResilientMcpToolset:
     if os.getenv("MCP_REGISTRY_SERVER"):
         return ResilientMcpToolset(toolset_factory=_build_registry_toolset)
 
-    from google.adk.tools.mcp_tool import SseConnectionParams
+    from google.adk.tools.mcp_tool import StreamableHTTPConnectionParams
 
     url = os.getenv("MCP_PORTFOLIO_URL", _DEFAULT_LOCAL_MCP_URL)
-    logger.info("Connecting portfolio MCP via direct SSE: %s", url)
+    logger.info("Connecting portfolio MCP via direct Streamable HTTP: %s", url)
     return ResilientMcpToolset(
-        connection_params=SseConnectionParams(
+        connection_params=StreamableHTTPConnectionParams(
             url=url,
             timeout=10.0,
         ),
