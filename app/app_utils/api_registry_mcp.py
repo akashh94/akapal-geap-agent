@@ -1,6 +1,6 @@
 """Build a resilient MCP toolset for the portfolio data server.
 
-Connects to the portfolio MCP server through the Google Cloud API Registry
+Connects to the portfolio MCP server through the Google Cloud Agent Registry
 when ``MCP_REGISTRY_SERVER`` is set, and falls back to a direct Streamable
 HTTP connection (``MCP_PORTFOLIO_URL``) otherwise so local development keeps
 working without a registry.
@@ -14,7 +14,7 @@ from __future__ import annotations
 import logging
 import os
 
-from google.adk.integrations.api_registry import ApiRegistry
+from google.adk.integrations.agent_registry import AgentRegistry
 from google.adk.tools.base_toolset import BaseToolset
 
 from app.app_utils.resilient_mcp import ResilientMcpToolset
@@ -26,11 +26,11 @@ _DEFAULT_LOCAL_MCP_URL = "http://localhost:8080/mcp"
 
 
 def _build_registry_toolset() -> BaseToolset:
-    """Build an ``McpToolset`` for the MCP server registered in API Registry.
+    """Build an ``McpToolset`` for the MCP server registered in Agent Registry.
 
     Reads the registry configuration from the environment:
 
-    * ``MCP_REGISTRY_PROJECT_ID`` — project where the API Registry lives
+    * ``MCP_REGISTRY_PROJECT_ID`` — project where the Agent Registry lives
       (defaults to ``GOOGLE_CLOUD_PROJECT`` if unset).
     * ``MCP_REGISTRY_LOCATION`` — location of the registry resource
       (defaults to ``global``).
@@ -44,30 +44,29 @@ def _build_registry_toolset() -> BaseToolset:
     location = os.getenv("MCP_REGISTRY_LOCATION", "global")
     server_name = os.getenv("MCP_REGISTRY_SERVER", "")
 
-    if not project_id or not server_name:
+    if not project_id or not location or not server_name:
         raise ValueError(
-            "MCP_REGISTRY_PROJECT_ID and MCP_REGISTRY_SERVER must be set "
-            "when using the API Registry connection."
+            "MCP_REGISTRY_PROJECT_ID, MCP_REGISTRY_LOCATION and "
+            "MCP_REGISTRY_SERVER must be set when using the Agent Registry "
+            "connection."
         )
 
     logger.info(
-        "Connecting portfolio MCP via API Registry: project=%s location=%s server=%s",
+        "Connecting portfolio MCP via Agent Registry: project=%s location=%s server=%s",
         project_id,
         location,
         server_name,
     )
-    api_registry = ApiRegistry(
-        api_registry_project_id=project_id,
-        location=location,
-    )
-    return api_registry.get_toolset(mcp_server_name=server_name)
+    registry = AgentRegistry(project_id=project_id, location=location)
+    return registry.get_mcp_toolset(mcp_server_name=server_name)
 
 
 def build_portfolio_mcp_toolset() -> ResilientMcpToolset:
     """Return a resilient toolset for the portfolio MCP server.
 
-    Uses the API Registry connection when ``MCP_REGISTRY_SERVER`` is set;
-    otherwise falls back to the direct SSE URL from ``MCP_PORTFOLIO_URL``.
+    Uses the Agent Registry connection when ``MCP_REGISTRY_SERVER`` is set;
+    otherwise falls back to the direct Streamable HTTP URL from
+    ``MCP_PORTFOLIO_URL``.
     """
     if os.getenv("MCP_REGISTRY_SERVER"):
         return ResilientMcpToolset(toolset_factory=_build_registry_toolset)
