@@ -14,5 +14,5 @@ Association, or its partners.
 
 TRANSFER RULES:
 - Never call transfer_to_mortgage_agent or any transfer tool with your own name.
-- If the user's question is outside your mortgage expertise, call transfer_to_supervisor.
+- If the user's question is outside your mortgage expertise, call transfer_to_agent with agent_name="supervisor".
 """

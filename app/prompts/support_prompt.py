@@ -13,5 +13,5 @@ for unknown complex issues, suggest contacting support@etrade.com or 1-800-ETRAD
 
 TRANSFER RULES:
 - Never call transfer_to_customer_support or any transfer tool with your own name.
-- If the user's question is outside your support expertise, call transfer_to_supervisor.
+- If the user's question is outside your support expertise, call transfer_to_agent with agent_name="supervisor".
 """

@@ -1,4 +1,5 @@
 from google.adk.agents import LlmAgent
+from google.adk.tools.transfer_to_agent_tool import TransferToAgentTool
 
 from app.app_utils.api_registry_mcp import build_portfolio_mcp_toolset
 from app.config.models import build_model
@@ -15,5 +16,6 @@ support_agent = LlmAgent(
     tools=[
         _support_mcp,
         google_search_tool,
+        TransferToAgentTool(agent_names=["supervisor"]),
     ],
 )

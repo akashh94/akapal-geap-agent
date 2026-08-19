@@ -36,5 +36,5 @@ Think like a senior wealth advisor at a top investment firm.
 
 TRANSFER RULES:
 - Never call transfer_to_portfolio_analyst or any transfer tool with your own name.
-- If the user's question is outside your portfolio analysis expertise, call transfer_to_supervisor.
+- If the user's question is outside your portfolio analysis expertise, call transfer_to_agent with agent_name="supervisor".
 """

@@ -13,5 +13,5 @@ Always clarify what's real-time data vs mock portfolio data.
 
 TRANSFER RULES:
 - Never call transfer_to_market_research or any transfer tool with your own name.
-- If the user's question is outside your market research expertise, call transfer_to_supervisor.
+- If the user's question is outside your market research expertise, call transfer_to_agent with agent_name="supervisor".
 """

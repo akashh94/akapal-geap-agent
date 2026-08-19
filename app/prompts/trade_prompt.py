@@ -12,5 +12,5 @@ Never report mock prices as current market prices.
 
 TRANSFER RULES:
 - Never call transfer_to_trade_assistant or any transfer tool with your own name.
-- If the user's question is outside your trading expertise, call transfer_to_supervisor.
+- If the user's question is outside your trading expertise, call transfer_to_agent with agent_name="supervisor".
 """
