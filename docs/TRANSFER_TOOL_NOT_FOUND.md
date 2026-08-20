@@ -34,25 +34,21 @@ why it only surfaced on the office deployment.
 
 ## Fix
 
-1. **Add the transfer tool to every sub-agent** so the model can hand back to
-   the supervisor:
+1. **Do NOT add `TransferToAgentTool` explicitly to sub-agents.** ADK 2.6.2's
+   default `AutoFlow` already injects the generic `transfer_to_agent` tool at
+   LLM request time for chat-mode agents. Adding it explicitly as well causes
+   a duplicate declaration, which Gemini rejects with:
 
-   ```python
-   from google.adk.tools.transfer_to_agent_tool import TransferToAgentTool
-
-   LlmAgent(
-       ...,
-       tools=[
-           ...,
-           TransferToAgentTool(agent_names=["supervisor"]),
-       ],
-   )
+   ```
+   WARNING:root:Duplicate tool name 'transfer_to_agent': the previously
+     registered tool is shadowed and can no longer be called
+   400 INVALID_ARGUMENT: Duplicate function declaration found: transfer_to_agent
    ```
 
-   `agent_names` enum-constrains the `agent_name` parameter so the model
-   cannot hallucinate a target.
+   The tool appears once, automatically, with the correct `agent_name` enum
+   (parent + peers of the agent).
 
-2. **Update the prompts** to reference the real tool:
+2. **Reference the real tool in the prompts**:
 
    ```
    - If the user's question is outside your expertise, call transfer_to_agent
@@ -63,18 +59,20 @@ why it only surfaced on the office deployment.
 
 ## Verification
 
-Each sub-agent's tool list now includes `transfer_to_agent`:
+The explicit sub-agent tool lists contain **no** `transfer_to_agent` — ADK's
+AutoFlow injects it once per agent at LLM request time:
 
 ```
-trade_assistant    ['ResilientMcpToolset', 'google_search_agent', 'load_web_page', 'transfer_to_agent']
-portfolio_analyst  ['ResilientMcpToolset', 'transfer_to_agent']
-market_research    ['ResilientMcpToolset', 'google_search_agent', 'load_web_page', 'transfer_to_agent']
-customer_support   ['ResilientMcpToolset', 'google_search_agent', 'transfer_to_agent']
-mortgage_agent     ['ResilientMcpToolset', 'google_search_agent', 'transfer_to_agent']
+trade_assistant    ['ResilientMcpToolset', 'google_search_agent', 'load_web_page']
+portfolio_analyst  ['ResilientMcpToolset']
+market_research    ['ResilientMcpToolset', 'google_search_agent', 'load_web_page']
+customer_support   ['ResilientMcpToolset', 'google_search_agent']
+mortgage_agent     ['ResilientMcpToolset', 'google_search_agent']
 ```
 
 ## Key takeaway
 
-Never reference a transfer tool name in a prompt that ADK does not generate.
-ADK 2.6.2 exposes only `transfer_to_agent(agent_name=...)`; anything else must
-be added explicitly with `TransferToAgentTool`.
+Never add `TransferToAgentTool` to a chat-mode agent's `tools` list. ADK 2.6.2
+exposes exactly one `transfer_to_agent(agent_name=...)` declaration, injected
+automatically by AutoFlow; a second one is a duplicate declaration that Gemini
+rejects.

@@ -1,7 +1,6 @@
 from google.adk.agents import LlmAgent
 from google.adk.tools import FunctionTool
 from google.adk.tools.load_web_page import load_web_page
-from google.adk.tools.transfer_to_agent_tool import TransferToAgentTool
 
 from app.app_utils.api_registry_mcp import build_portfolio_mcp_toolset
 from app.config.models import build_model
@@ -19,6 +18,5 @@ trade_agent = LlmAgent(
         _trade_mcp,
         google_search_tool,
         FunctionTool(load_web_page),
-        TransferToAgentTool(agent_names=["supervisor"]),
     ],
 )
