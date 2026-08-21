@@ -105,11 +105,13 @@ portfolio_agent = LlmAgent(
 Each agent gets two built-in ADK tools:
 
 ```python
-tools=[
-    _portfolio_mcp,
-    preload_memory,   # runs AUTOMATICALLY at every turn (not model-callable)
-    load_memory,      # on-demand, agent chooses to call it
-],
+tools = (
+    [
+        _portfolio_mcp,
+        preload_memory,  # runs AUTOMATICALLY at every turn (not model-callable)
+        load_memory,  # on-demand, agent chooses to call it
+    ],
+)
 ```
 
 - **`preload_memory`** — **not a model-callable tool.** ADK executes it at the
@@ -150,12 +152,14 @@ ADK web UI, the A2A path, and the Runner all share it:
 @functools.cache
 def get_memory_service():
     from google.adk.memory import VertexAiMemoryBankService
+
     ...
     return VertexAiMemoryBankService(
         project=...,
         location=...,
         agent_engine_id=...,
     )
+
 
 _registry.register_memory_service("shared", lambda uri, **kw: get_memory_service())
 ```

@@ -123,7 +123,9 @@ def get_memory_service():
     )
     logger.info(
         "memory backend: vertex-ai-memory-bank (project=%s location=%s engine=%s)",
-        project, location, agent_engine_id,
+        project,
+        location,
+        agent_engine_id,
     )
     return VertexAiMemoryBankService(
         project=project,
@@ -220,6 +222,7 @@ once, with no duplicate tool names.
 
    ```python
    import vertexai
+
    client = vertexai.Client(project="PROJECT_ID", location="LOCATION")
    result = client.agent_engines.memories.retrieve(
        name="reasoningEngines/<AGENT_ENGINE_ID>",
