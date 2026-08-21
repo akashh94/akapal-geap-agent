@@ -5,6 +5,9 @@ agent orchestrates a team of specialist sub-agents (portfolio, trading, market
 research, customer support, mortgage) and is exposed over both the standard ADK
 web/API surface and the A2A (Agent2Agent) protocol.
 
+Long-term, cross-session memory is provided by Vertex AI Memory Bank — see
+[docs/MEMORY_BANK.md](docs/MEMORY_BANK.md) for the full implementation guide.
+
 ## Architecture
 
 - **`app/agent.py`** — entry point exposing `root_agent` for ADK web UI discovery.
@@ -125,6 +128,7 @@ Streaming clients use `SendStreamingMessage`. The A2A routes share the same
 | `MCP_REGISTRY_PROJECT_ID` | `$PROJECT_ID` | GCP project hosting the API Registry |
 | `MCP_REGISTRY_LOCATION` | `global` | Location of the API Registry resources |
 | `MCP_REGISTRY_SERVER` | — | Full name of the registered MCP server (`projects/.../locations/.../mcpServers/...`); when set, agents connect via API Registry instead of the raw SSE URL |
+| `MEMORY_BANK_ID` | `$GOOGLE_CLOUD_AGENT_ENGINE_ID` | Vertex AI Memory Bank instance ID for long-term agent memory (`projects/.../reasoningEngines/<id>`) |
 | `FINANCIAL_PLANNER_URL` | `https://PLACEHOLDER...` | A2A agent-card URL of the remote financial planner (Agent Engine passthrough) |
 | `APP_URL` | `http://0.0.0.0:8000` | Base URL advertised on the A2A agent card |
 | `AGENT_VERSION` | `0.1.0` | Version advertised on the A2A agent card |
@@ -216,6 +220,16 @@ Streaming clients use `SendStreamingMessage`. The A2A routes share the same
 - **`GOOGLE_CLOUD_AGENT_ENGINE_LOCATION`** — (advanced, runtime-injected)
   Region of the Agent Engine instance, used with the engine ID above for
   session service location. Not the same as `MODEL_LOCATION`.
+
+- **`MEMORY_BANK_ID`** — Vertex AI Memory Bank instance ID used for long-term
+  agent memory (e.g. `456` in
+  `projects/<project>/locations/<region>/reasoningEngines/456`). Defaults to
+  `GOOGLE_CLOUD_AGENT_ENGINE_ID` when unset, so deployed agents use their
+  runtime's Memory Bank automatically. Set it explicitly to point at a
+  dedicated Memory Bank instance. All agents (supervisor, sub-agents, and the
+  financial planner) use `preload_memory`/`load_memory` to recall memories and
+  an `after_agent_callback` to persist each session, scoped by
+  `app_name` + `user_id`.
 
 ## Deployment
 
