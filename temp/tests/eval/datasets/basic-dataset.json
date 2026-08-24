@@ -1,0 +1,53 @@
+{
+  "eval_cases": [
+    {
+      "eval_case_id": "greeting",
+      "prompt": {
+        "role": "user",
+        "parts": [{"text": "Hello, what can you help me with?"}]
+      }
+    },
+    {
+      "eval_case_id": "portfolio_query",
+      "prompt": {
+        "role": "user",
+        "parts": [{"text": "What are my current portfolio holdings and how are they allocated by sector?"}]
+      }
+    },
+    {
+      "eval_case_id": "trade_query",
+      "prompt": {
+        "role": "user",
+        "parts": [{"text": "If I bought 10 more shares of AAPL, how would that affect my portfolio concentration?"}]
+      }
+    },
+    {
+      "eval_case_id": "market_research_query",
+      "prompt": {
+        "role": "user",
+        "parts": [{"text": "What's the market outlook for NVDA right now?"}]
+      }
+    },
+    {
+      "eval_case_id": "advanced_market_research_query",
+      "prompt": {
+        "role": "user",
+        "parts": [{"text": "Give me Morgan Stanley Research's view on Bitcoin and private equity allocations right now."}]
+      }
+    },
+    {
+      "eval_case_id": "support_query",
+      "prompt": {
+        "role": "user",
+        "parts": [{"text": "How do I transfer funds into my account?"}]
+      }
+    },
+    {
+      "eval_case_id": "mortgage_query",
+      "prompt": {
+        "role": "user",
+        "parts": [{"text": "I'm thinking about buying a home in Austin, Texas within the next year. What should I know about the mortgage process?"}]
+      }
+    }
+  ]
+}
