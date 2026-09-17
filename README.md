@@ -15,8 +15,8 @@ Long-term, cross-session memory is provided by Vertex AI Memory Bank — see
 - **`app/agents/`** — specialist agents: `portfolio_analyst`, `trade_assistant`,
   `market_research`, `customer_support`, `mortgage_agent`.
 - **`app/tools/a2a_planner_tool.py`** — `call_financial_planner` FunctionTool:
-  delegates financial-planning questions to the remote planner over A2A
-  (a2a-sdk client, Bearer auth, card discovery).
+  delegates financial-planning questions to the remote planner over A2A, via the
+  Agent Platform SDK (`agent_engines.get` → `on_message_send`).
 - **`app/fast_api_app.py`** — FastAPI app wiring the runner, sessions, A2A routes,
   `/feedback` endpoint, and Cloud Logging.
 - **`app/app_utils/a2a.py`** — `attach_a2a_routes()`: registers the A2A agent card and
@@ -129,7 +129,7 @@ Streaming clients use `SendStreamingMessage`. The A2A routes share the same
 | `MCP_REGISTRY_LOCATION` | `global` | Location of the API Registry resources |
 | `MCP_REGISTRY_SERVER` | — | Full name of the registered MCP server (`projects/.../locations/.../mcpServers/...`); when set, agents connect via API Registry instead of the raw SSE URL |
 | `MEMORY_BANK_ID` | `$GOOGLE_CLOUD_AGENT_ENGINE_ID` | Vertex AI Memory Bank instance ID for long-term agent memory (`projects/.../reasoningEngines/<id>`) |
-| `FINANCIAL_PLANNER_URL` | `https://PLACEHOLDER...` | A2A agent-card URL of the remote financial planner (Agent Engine passthrough) |
+| `FINANCIAL_PLANNER_ENGINE` | `projects/PLACEHOLDER...` | ReasoningEngine resource name of the remote financial planner (Agent Runtime A2A) |
 | `APP_URL` | `http://0.0.0.0:8000` | Base URL advertised on the A2A agent card |
 | `AGENT_VERSION` | `0.1.0` | Version advertised on the A2A agent card |
 | `ALLOW_ORIGINS` | — | Comma-separated CORS origins (browser only) |
@@ -173,20 +173,21 @@ Streaming clients use `SendStreamingMessage`. The A2A routes share the same
   registry provides discovery and auth for the MCP endpoint (streamable HTTP
   at `/mcp`). See `app/app_utils/api_registry_mcp.py`.
 
-- **`FINANCIAL_PLANNER_URL`** — A2A agent-card URL of the separately-deployed
-  financial planner that the supervisor reaches through the
-  `call_financial_planner` tool (`app/tools/a2a_planner_tool.py`). The
-  planner runs on **Cloud Run** (Model A) serving A2A at
-  `/a2a/financial_planner`, with the standard card at:
+- **`FINANCIAL_PLANNER_ENGINE`** — full ReasoningEngine resource name of the
+  separately-deployed financial planner that the supervisor reaches through the
+  `call_financial_planner` tool (`app/tools/a2a_planner_tool.py`). The planner
+  runs on **Agent Runtime** as a native A2A agent:
 
   ```
-  https://<service>-<hash>.<region>.run.app/a2a/financial_planner/
-    .well-known/agent-card.json
+  projects/<project>/locations/<region>/reasoningEngines/<id>
   ```
 
-  The tool authenticates with a Bearer token from ambient credentials and
-  sends JSON-RPC `SendMessage` via the a2a-sdk client. Each call uses a fresh
-  message/task (stateless by design).
+  Agent Runtime serves no public agent card (only an authenticated one at
+  `{engine}/a2a/v1/card`), so the engine is addressed by resource name rather
+  than by fetching a card. The tool calls the registered A2A operation
+  `on_message_send` through the Agent Platform SDK, reusing one process-wide
+  client. Each call uses a fresh message/task (stateless by design). The value
+  is printed by the planner repo's `deploy.personal.a2a.sh` / `deploy.a2a.sh`.
 
 - **`APP_URL`** — Base URL advertised on the A2A agent card (used to build the
   card's `rpcUrl`). Default `http://0.0.0.0:8000`; set it to the deployed
@@ -249,7 +250,7 @@ Helper scripts are provided (run in Cloud Shell):
 
 - `./build.sh` — installs `uv` + `agents-cli`, runs `agents-cli install` and lint.
 - `./deploy.sh` — deploys via `agents-cli deploy --deployment-target agent_runtime`,
-  overriding `AGENT_MODEL` / `MODEL_LOCATION` / `MCP_PORTFOLIO_URL` / `FINANCIAL_PLANNER_URL`.
+  overriding `AGENT_MODEL` / `MODEL_LOCATION` / `MCP_PORTFOLIO_URL` / `FINANCIAL_PLANNER_ENGINE`.
   Both deploy scripts pin the engine to a single replica (`--min-instances 1
   --max-instances 1`) so the in-memory session service (see below) sees a stable
   process. Remove the flags to allow autoscaling (default max 10).
@@ -274,22 +275,18 @@ different values. Each script sources **exactly one** of them:
 | `./build.personal.sh` / `./deploy.personal.sh` | `deploy.personal.env` | Personal (`adk-tut-499512`, `us-central1`) |
 
 Both files define the same variables (`PROJECT_ID`, `REGION`, `AGENT_MODEL`,
-`MODEL_LOCATION`, `MCP_PORTFOLIO_URL`, `FINANCIAL_PLANNER_BASE_URL`,
-`FINANCIAL_PLANNER_URL`) — so picking which file a script sources is what
-picks which environment it deploys to. To point an environment at a different
-financial planner, edit **only** that environment's file:
+`MODEL_LOCATION`, `MCP_PORTFOLIO_URL`, `FINANCIAL_PLANNER_ENGINE`) — so picking
+which file a script sources is what picks which environment it deploys to. To
+point an environment at a different financial planner, edit **only** that
+environment's file:
 
 ```bash
-# deploy.personal.env — the planner's Cloud Run A2A base (Model A)
-FINANCIAL_PLANNER_BASE_URL=https://<service>-<hash>.<region>.run.app/a2a/financial_planner
+# deploy.personal.env — the planner's Agent Runtime engine (A2A)
+FINANCIAL_PLANNER_ENGINE=projects/adk-tut-499512/locations/us-central1/reasoningEngines/<id>
 ```
 
-That single value derives `FINANCIAL_PLANNER_URL`
-(`${FINANCIAL_PLANNER_BASE_URL}/.well-known/agent-card.json`), which the
-supervisor's `call_financial_planner` tool
-(`app/tools/a2a_planner_tool.py`) reads at runtime. The base is the
-planner's Cloud Run A2A endpoint
-(`https://<service>-<hash>.<region>.run.app/a2a/financial_planner`).
+That single value is what the supervisor's `call_financial_planner` tool
+(`app/tools/a2a_planner_tool.py`) reads at runtime.
 
 - `geap.deploy.env` is committed to version control.
 - `deploy.personal.env` is **gitignored** — copy it per-machine and fill in

@@ -1,22 +1,17 @@
 """A2A tool that delegates financial-planning questions to the remote planner.
 
-The supervisor (orchestrator) exposes a ``call_financial_planner``
-``FunctionTool``. When invoked, it:
+The planner runs on Agent Runtime as a native A2A agent, so this goes through
+the Agent Platform SDK rather than a card fetch + JSON-RPC round trip: Agent
+Runtime serves no public agent card (only an authenticated one at
+``{engine}/a2a/v1/card``), and its A2A surface is the registered operation
+``on_message_send``.
 
-1. Fetches the deployed planner's A2A agent card (from the URL in
-   ``FINANCIAL_PLANNER_URL``), authenticated with the ambient Google Cloud
-   credentials.
-2. Sends the user's question over A2A (JSON-RPC ``SendMessage``) using the
-   a2a-sdk client and returns the planner's text answer.
+The planner is addressed by its full ReasoningEngine resource name
+(``FINANCIAL_PLANNER_ENGINE``). The SDK rewrites the card's interface URL from
+that resource name before connecting, so no URL plumbing is needed here.
 
-The planner is stateless by design: each call gets a fresh task/session, so
-follow-up planning questions are independent (no planner-side context is
-carried between calls).
-
-Deployment note (Model A / Cloud Run): the planner's FastAPI app serves its
-own A2A routes and rewrites the card URL per-request to the public host, so
-the card's advertised endpoint is already correct — no passthrough rewriting
-is needed (unlike the old Agent Engine passthrough shape).
+The planner is stateless by design: each call gets a fresh message/task, so
+follow-up planning questions are independent of one another.
 """
 
 from __future__ import annotations
@@ -26,40 +21,65 @@ import logging
 import os
 import uuid
 
-import google.auth
-import google.auth.transport.requests
-import httpx
-from a2a.client import ClientConfig, ClientFactory
-from a2a.client.card_resolver import parse_agent_card
+import vertexai
 from a2a.types import Message, Part, Role, SendMessageRequest
 from google.adk.tools import FunctionTool
+from google.genai import types
 
-# The planner's A2A agent card. Override via FINANCIAL_PLANNER_URL at deploy
-# time; the placeholder default fails loudly on first use until set. Expected
-# format (Cloud Run / Model A):
-#   https://<service>-<hash>.<region>.run.app/a2a/financial_planner/
-#     .well-known/agent-card.json
-DEFAULT_PLANNER_CARD_URL = (
-    "https://PLACEHOLDER-FINANCIAL-PLANNER-BASE/a2a/financial_planner/"
-    ".well-known/agent-card.json"
+# Full ReasoningEngine resource name of the planner, injected at deploy time:
+#   projects/<project>/locations/<region>/reasoningEngines/<id>
+# The placeholder fails loudly on first use until the value is set.
+DEFAULT_PLANNER_ENGINE = (
+    "projects/PLACEHOLDER/locations/us-central1/reasoningEngines/PLACEHOLDER"
 )
 
+# The planner runs a whole LLM turn behind the portfolio MCP server, which the
+# client's default timeout is too short for. HttpOptions.timeout is in
+# milliseconds.
+_PLANNER_TIMEOUT_MS = 180_000
 
-def _auth_headers() -> dict[str, str]:
-    """Bearer token from ambient ADC, used for the planner's A2A endpoints."""
-    creds, _ = google.auth.default(
-        scopes=["https://www.googleapis.com/auth/cloud-platform"]
-    )
-    creds.refresh(google.auth.transport.requests.Request())
-    return {
-        "Authorization": f"Bearer {creds.token}",
-        "Content-Type": "application/json",
-    }
+
+def _planner_engine() -> str:
+    """Full ReasoningEngine resource name of the planner."""
+    return os.environ.get("FINANCIAL_PLANNER_ENGINE", DEFAULT_PLANNER_ENGINE).strip()
 
 
 @functools.cache
-def _planner_card_url() -> str:
-    return os.getenv("FINANCIAL_PLANNER_URL", DEFAULT_PLANNER_CARD_URL).strip()
+def _client() -> vertexai.Client:
+    """Process-wide Agent Platform client, reused across planner calls.
+
+    Building a cloud client is expensive (auth, TLS), so one instance serves
+    every call.
+    """
+    return vertexai.Client(
+        project=os.environ["GOOGLE_CLOUD_PROJECT"],
+        # Runtime-injected agent-engine region first: GOOGLE_CLOUD_LOCATION is
+        # not necessarily the engine's region (mirrors app/app_utils/services.py).
+        location=(
+            os.environ.get("GOOGLE_CLOUD_AGENT_ENGINE_LOCATION")
+            or os.environ.get("GOOGLE_CLOUD_LOCATION")
+            or "us-central1"
+        ),
+        http_options=types.HttpOptions(
+            api_version="v1beta1", timeout=_PLANNER_TIMEOUT_MS
+        ),
+    )
+
+
+def _extract_text(chunks: list) -> str:
+    """Pull the answer text out of the A2A chunks the planner streams back."""
+    texts: list[str] = []
+    for chunk in chunks:
+        task = getattr(chunk, "task", None)
+        if task is not None:
+            for message in task.history:
+                if message.role == Role.ROLE_USER:
+                    continue
+                texts.extend(part.text for part in message.parts if part.text)
+        update = getattr(chunk, "artifact_update", None)
+        if update is not None:
+            texts.extend(part.text for part in update.artifact.parts if part.text)
+    return "\n".join(texts).strip()
 
 
 async def call_financial_planner(request: str) -> str:
@@ -71,44 +91,18 @@ async def call_financial_planner(request: str) -> str:
     Returns:
         The planner's text response, or an error message if it cannot answer.
     """
-    card_url = _planner_card_url()
-    headers = _auth_headers()
     try:
-        async with httpx.AsyncClient(timeout=60.0, headers=headers) as client:
-            resp = await client.get(card_url)
-            resp.raise_for_status()
-            card = parse_agent_card(resp.json())
-
-        factory = ClientFactory(
-            ClientConfig(
-                supported_protocol_bindings=["JSONRPC"],
-                use_client_preference=True,
-                httpx_client=httpx.AsyncClient(timeout=180.0, headers=headers),
+        remote = _client().agent_engines.get(name=_planner_engine())
+        chunks = await remote.on_message_send(
+            request=SendMessageRequest(
+                message=Message(
+                    message_id=f"supervisor-{uuid.uuid4()}",
+                    role=Role.ROLE_USER,
+                    parts=[Part(text=request)],
+                )
             )
         )
-        a2a_client = factory.create(card)
-        message = Message(
-            message_id=f"supervisor-{uuid.uuid4()}",
-            role=Role.ROLE_USER,
-            parts=[Part(text=request)],
-        )
-        texts: list[str] = []
-        async for chunk in a2a_client.send_message(SendMessageRequest(message=message)):
-            # chunk is a protobuf message; collect text from artifact parts.
-            artifact_update = getattr(chunk, "artifact_update", None)
-            if artifact_update is not None:
-                for part in artifact_update.artifact.parts:
-                    if part.text:
-                        texts.append(part.text)
-            task = getattr(chunk, "task", None)
-            if task is not None:
-                for msg in task.history:
-                    if msg.role == Role.ROLE_USER:
-                        continue
-                    for part in msg.parts:
-                        if part.text:
-                            texts.append(part.text)
-        return "\n".join(texts).strip() or ("The financial planner returned no answer.")
+        return _extract_text(chunks) or "The financial planner returned no answer."
     except Exception as exc:  # noqa: BLE001 - surface a helpful error to the LLM
         logging.warning("call_financial_planner failed: %s", exc, exc_info=True)
         return f"The financial planner could not answer: {exc}"

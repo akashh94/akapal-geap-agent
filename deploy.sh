@@ -15,7 +15,7 @@ cd "$PROJECT_ROOT"
 unset VIRTUAL_ENV
 
 # Office environment config (self-contained): PROJECT_ID / REGION / AGENT_MODEL /
-# MODEL_LOCATION / MCP_PORTFOLIO_URL / FINANCIAL_PLANNER_URL all come from
+# MODEL_LOCATION / MCP_PORTFOLIO_URL / FINANCIAL_PLANNER_ENGINE all come from
 # geap.deploy.env — the single source of truth for the office deployment.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/geap.deploy.env"
