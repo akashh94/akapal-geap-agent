@@ -106,16 +106,21 @@ chat surfaces):
 from app.a2ui.envelope import SurfaceBuilder
 from app.a2ui.validate import validate_envelope
 
+
 def render_my_surface() -> dict:
     """Docstring is the tool description the model sees — explain *when* to call this."""
-    data = get_my_underlying_data()  # a separate, plain tool the agent also calls directly
+    data = (
+        get_my_underlying_data()
+    )  # a separate, plain tool the agent also calls directly
 
     builder = SurfaceBuilder("my-surface-id", title="My Surface")
     builder.add("tile", "stat_tile", {"label": "...", "value": str(data["x"])})
     builder.set_data(agent="my_agent")
 
     envelope = builder.build()
-    validate_envelope(envelope)  # raises A2uiValidationError -- let it propagate as a tool error
+    validate_envelope(
+        envelope
+    )  # raises A2uiValidationError -- let it propagate as a tool error
     return {"a2ui": envelope}
 ```
 
