@@ -8,6 +8,11 @@ web/API surface and the A2A (Agent2Agent) protocol.
 Long-term, cross-session memory is provided by Vertex AI Memory Bank — see
 [docs/MEMORY_BANK.md](docs/MEMORY_BANK.md) for the full implementation guide.
 
+How the supervisor and the separately-deployed financial planner reach each
+other over A2A on Agent Runtime — including the deploy order, the required APIs
+and IAM, and the failure modes to expect — is documented in
+[docs/AGENT_RUNTIME_A2A.md](docs/AGENT_RUNTIME_A2A.md).
+
 ## Architecture
 
 - **`app/agent.py`** — entry point exposing `root_agent` for ADK web UI discovery.
