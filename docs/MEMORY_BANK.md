@@ -136,12 +136,25 @@ def get_memory_service():
 
 - `MEMORY_BANK_ID` selects the Memory Bank instance; falls back to the
   runtime-injected `GOOGLE_CLOUD_AGENT_ENGINE_ID` when unset.
-- The service is registered under `shared://` in the service registry, so the
-  ADK web routes, the A2A path, and the Runner share one instance.
-- It **fails fast** (raises `ValueError`) if no instance ID is configured,
-  rather than silently degrading.
+- The service is registered under `shared://` in the service registry, so every
+  serving surface shares one instance.
+- It falls back to `InMemoryMemoryService` (logging which backend it chose) when
+  no instance ID is configured, so the app still boots locally. Vertex AI Memory
+  Bank is used whenever `MEMORY_BANK_ID` or `GOOGLE_CLOUD_AGENT_ENGINE_ID` is set.
 
-The service is passed to the `Runner` in each repo's `fast_api_app.py`:
+**This repo** selects it by URI, so ADK's own runner picks it up:
+
+```python
+app = get_fast_api_app(
+    ...,
+    session_service_uri="shared://session",
+    artifact_service_uri="shared://artifact",
+    memory_service_uri="shared://memory",
+)
+```
+
+**The planner repo** still passes it to a `Runner` directly, because it builds its
+own runner for the `A2aAgent` and A2A paths:
 
 ```python
 runner = Runner(
@@ -162,7 +175,7 @@ runner = Runner(
 | `app/app_utils/memory_callbacks.py` | New: `save_session_to_memory_callback` |
 | `app/agents/*.py` | Added `preload_memory`, `load_memory` tools + `after_agent_callback` |
 | `app/prompts/*.py` | Added `MEMORY:` instruction block |
-| `app/fast_api_app.py` | Passed `memory_service` to the `Runner` |
+| `app/fast_api_app.py` | Selects the shared services via `*_service_uri` (this repo) |
 | `geap.deploy.env` / `deploy.personal.env` | Added `MEMORY_BANK_ID` |
 
 ## Configuration
