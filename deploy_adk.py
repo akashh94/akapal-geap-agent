@@ -1,8 +1,8 @@
 """Deploy the supervisor as an ADK agent on Agent Runtime.
 
-Object deploy of a ``vertexai.agent_engines.AdkApp``: the platform serves the ADK
-operations (``:query`` / ``:streamQuery``) against the agent, so there is no
-FastAPI app, no uvicorn and no Dockerfile to own. ``agent_framework`` is
+Object deploy of an ``agentplatform.agent_engines.AdkApp``: the platform serves
+the ADK operations (``:query`` / ``:streamQuery``) against the agent, so there is
+no FastAPI app, no uvicorn and no Dockerfile to own. ``agent_framework`` is
 auto-detected as ``google-adk`` from the object, and ``AdkApp.set_up()`` picks
 Vertex AI sessions and Memory Bank once the runtime injects
 ``GOOGLE_CLOUD_AGENT_ENGINE_ID``.
@@ -19,9 +19,9 @@ from __future__ import annotations
 
 import os
 
-import vertexai
+import agentplatform
+from agentplatform.agent_engines import AdkApp
 from google.genai import types
-from vertexai.agent_engines import AdkApp
 
 from app.agent import root_agent
 
@@ -74,32 +74,57 @@ REQUIREMENTS = [
 # "No module named 'app.agent'".
 EXTRA_PACKAGES = ["app"]
 
-client = vertexai.Client(
+client = agentplatform.Client(
     project=PROJECT_ID,
     location=REGION,
     http_options=types.HttpOptions(api_version="v1beta1"),
 )
 
-remote = client.agent_engines.create(
-    agent=AdkApp(agent=root_agent),
-    config={
-        "display_name": "akapal-geap-agents",
-        "description": (
-            "Multi-agent brokerage supervisor, served as an ADK agent on Agent Runtime."
-        ),
-        "requirements": REQUIREMENTS,
-        "extra_packages": EXTRA_PACKAGES,
-        "staging_bucket": STAGING_BUCKET,
-        "env_vars": ENV_VARS,
-        "min_instances": 1,
-        "max_instances": 1,
-    },
-)
+DISPLAY_NAME = "akapal-geap-agents"
+
+CONFIG = {
+    "display_name": DISPLAY_NAME,
+    "description": (
+        "Multi-agent brokerage supervisor, served as an ADK agent on Agent Runtime."
+    ),
+    "requirements": REQUIREMENTS,
+    "extra_packages": EXTRA_PACKAGES,
+    "staging_bucket": STAGING_BUCKET,
+    "env_vars": ENV_VARS,
+    "min_instances": 1,
+    "max_instances": 1,
+}
+
+# Update the existing engine instead of creating another one, so the resource
+# name clients hold in GEAP_ENGINE_ID stays valid across deploys.
+matches = [
+    engine.api_resource.name
+    for engine in client.agent_engines.list(
+        config={"filter": f'display_name="{DISPLAY_NAME}"'}
+    )
+]
+
+if len(matches) > 1:
+    raise SystemExit(
+        f"{len(matches)} engines named {DISPLAY_NAME!r} already exist:\n  "
+        + "\n  ".join(matches)
+        + "\n\nDelete the superseded ones and re-run, so this deploy updates a "
+        "single engine rather than one clients may not be calling."
+    )
+
+if matches:
+    remote = client.agent_engines.update(
+        name=matches[0], agent=AdkApp(agent=root_agent), config=CONFIG
+    )
+    action = "Updated"
+else:
+    remote = client.agent_engines.create(agent=AdkApp(agent=root_agent), config=CONFIG)
+    action = "Created"
 
 resource_name = remote.api_resource.name
 base = f"https://{REGION}-aiplatform.googleapis.com/v1/{resource_name}"
 
-print(f"Engine      : {resource_name}")
-print(f":query       POST {base}:query")
-print(f":streamQuery POST {base}:streamQuery")
-print("\nPoint the client's GEAP_ENGINE_ID at the resource name above.")
+print(f"{action} engine : {resource_name}")
+print(f":query        POST {base}:query")
+print(f":streamQuery  POST {base}:streamQuery")
+print("\nGEAP_ENGINE_ID keeps this value across deploys.")
