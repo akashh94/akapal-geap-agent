@@ -21,6 +21,7 @@ import os
 
 import agentplatform
 from agentplatform.agent_engines import AdkApp
+from google.genai import errors as genai_errors
 from google.genai import types
 
 from app.agent import root_agent
@@ -54,7 +55,7 @@ REQUIREMENTS = [
     "google-adk[gcp,db,a2a,agent-identity]==2.6.2",
     "google-cloud-aiplatform[agent_engines,adk]==1.163.0",
     "google-cloud-firestore",
-    "google-genai==2.16.0",
+    "google-genai==2.17.0",
     "python-dotenv",
     "a2a-sdk==1.1.2",
     "fastapi",
@@ -112,13 +113,29 @@ if len(matches) > 1:
         "single engine rather than one clients may not be calling."
     )
 
+app = AdkApp(agent=root_agent)
+
 if matches:
-    remote = client.agent_engines.update(
-        name=matches[0], agent=AdkApp(agent=root_agent), config=CONFIG
-    )
-    action = "Updated"
+    try:
+        remote = client.agent_engines.update(name=matches[0], agent=app, config=CONFIG)
+        action = "Updated"
+    except genai_errors.ClientError as exc:
+        # An engine deployed from source files (spec.source_code_spec, e.g. by
+        # agents-cli) cannot be converted to an object deploy in place -- the
+        # API rejects the PATCH. Create the object-deployed replacement instead;
+        # the old engine keeps running until it is deleted, so verify the new
+        # one first.
+        if "deployment_source" not in str(exc):
+            raise
+        print(
+            f"\n{matches[0]} was deployed from source files and cannot be "
+            "updated into an object deploy. Creating a new engine instead.\n"
+            "Delete the old engine once the new one is verified.\n"
+        )
+        remote = client.agent_engines.create(agent=app, config=CONFIG)
+        action = "Created (replacing an un-updatable engine)"
 else:
-    remote = client.agent_engines.create(agent=AdkApp(agent=root_agent), config=CONFIG)
+    remote = client.agent_engines.create(agent=app, config=CONFIG)
     action = "Created"
 
 resource_name = remote.api_resource.name
