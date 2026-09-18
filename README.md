@@ -6,7 +6,7 @@ research, customer support, mortgage) and is deployed to **Agent Runtime** as an
 ADK agent driven through the platform's `:query` / `:streamQuery` methods.
 
 There is no HTTP server in this repo. The deploy is an SDK object deploy of a
-`vertexai.agent_engines.AdkApp`, so the platform serves the agent's operations.
+`agentplatform.agent_engines.AdkApp`, so the platform serves the agent's operations.
 
 Long-term, cross-session memory is provided by Vertex AI Memory Bank — see
 [docs/MEMORY_BANK.md](docs/MEMORY_BANK.md) for the full implementation guide.
@@ -106,7 +106,7 @@ Vertex AI sessions and Vertex AI Memory Bank automatically — see the
 
 - **`GOOGLE_CLOUD_LOCATION`** — GCP region, e.g. `us-central1`. Used by the
   supervisor's A2A client, by `AdkApp`'s session and memory services, and by
-  `vertexai.Client`. Note `MODEL_LOCATION` (below) is separate — it controls
+  `agentplatform.Client`. Note `MODEL_LOCATION` (below) is separate — it controls
   which Vertex endpoint the model calls route to, not where the agent runs.
 
 - **`AGENT_MODEL`** — The Gemini model used by *every* agent (supervisor and
@@ -177,7 +177,7 @@ Vertex AI sessions and Vertex AI Memory Bank automatically — see the
 
 ## Deployment
 
-The deploy is an SDK object deploy of `vertexai.agent_engines.AdkApp`: Agent
+The deploy is an SDK object deploy of `agentplatform.agent_engines.AdkApp`: Agent
 Runtime builds the container from the pickled agent plus the bundled `app`
 package and a pinned requirements list. There is no Dockerfile and no Artifact
 Registry repository involved. `AdkApp` also registers the engine's operations for

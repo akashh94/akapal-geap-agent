@@ -48,7 +48,7 @@ client ──JSON-RPC──▶ supervisor (Agent Runtime, app-served A2A)
                           │  LLM decides to call call_financial_planner
                           ▼
                      app/tools/a2a_planner_tool.py
-                          │  vertexai.Client().agent_engines.get(name=FINANCIAL_PLANNER_ENGINE)
+                          │  agentplatform.Client().agent_engines.get(name=FINANCIAL_PLANNER_ENGINE)
                           │  await remote.on_message_send(SendMessageRequest(...))
                           ▼
                      planner (Agent Runtime, platform-native A2A)

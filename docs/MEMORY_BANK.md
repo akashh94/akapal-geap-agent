@@ -110,7 +110,7 @@ against that engine's Memory Bank; with no engine ID (local runs) it falls back
 to `InMemoryMemoryService`:
 
 ```python
-# vertexai/agent_engines/templates/adk.py, AdkApp.set_up()
+# agentplatform/agent_engines/templates/adk.py, AdkApp.set_up()
 elif "GOOGLE_CLOUD_AGENT_ENGINE_ID" in os.environ:
     self._tmpl_attrs["memory_service"] = VertexAiMemoryBankService(
         project=project,
@@ -219,9 +219,9 @@ real Memory Bank, export `GOOGLE_CLOUD_AGENT_ENGINE_ID` (and
 3. **Direct bank query** (isolates agent vs bank):
 
    ```python
-   import vertexai
+   import agentplatform
 
-   client = vertexai.Client(project="PROJECT_ID", location="LOCATION")
+   client = agentplatform.Client(project="PROJECT_ID", location="LOCATION")
    result = client.agent_engines.memories.retrieve(
        name="reasoningEngines/<AGENT_ENGINE_ID>",
        scope={"app_name": "<APP_NAME>", "user_id": "<USER_ID>"},

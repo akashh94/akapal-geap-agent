@@ -21,7 +21,7 @@ import logging
 import os
 import uuid
 
-import vertexai
+import agentplatform
 from a2a.types import Message, Part, Role, SendMessageRequest
 from google.adk.tools import FunctionTool
 from google.genai import types
@@ -45,13 +45,13 @@ def _planner_engine() -> str:
 
 
 @functools.cache
-def _client() -> vertexai.Client:
+def _client() -> agentplatform.Client:
     """Process-wide Agent Platform client, reused across planner calls.
 
     Building a cloud client is expensive (auth, TLS), so one instance serves
     every call.
     """
-    return vertexai.Client(
+    return agentplatform.Client(
         project=os.environ["GOOGLE_CLOUD_PROJECT"],
         # Runtime-injected agent-engine region first: GOOGLE_CLOUD_LOCATION is
         # not necessarily the engine's region (AdkApp resolves its own services

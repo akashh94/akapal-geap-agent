@@ -48,7 +48,7 @@ an agent over A2A in **two completely different ways**:
 
 |  | **App-served routes** | **Platform-native template** |
 |---|---|---|
-| What runs it | Your FastAPI app, mounted by `attach_a2a_routes()` | `vertexai.agent_engines.templates.a2a.A2aAgent` |
+| What runs it | Your FastAPI app, mounted by `attach_a2a_routes()` | `agentplatform.agent_engines.templates.a2a.A2aAgent` |
 | Who owns the A2A surface | You | The platform |
 | Public agent card | **Yes** — `.well-known/agent-card.json` | **No** — authenticated only |
 | Card URL | `…/api/a2a/<name>/.well-known/agent-card.json` | `…/a2a/v1/card` (does not work today, see §9) |

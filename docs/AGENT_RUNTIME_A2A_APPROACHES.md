@@ -7,7 +7,7 @@ Agent Runtime, why they behave so differently, and how to choose between them.
 >
 > 1. **The supervisor is no longer app-served at all.** `app/app_utils/a2a.py`,
 >    `app/fast_api_app.py` and the `Dockerfile` were removed; it is now deployed
->    as a `vertexai.agent_engines.AdkApp` object and the platform serves its
+>    as a `agentplatform.agent_engines.AdkApp` object and the platform serves its
 >    operations (`:query` / `:streamQuery`). That is a *third* shape — neither A
 >    (platform-native `A2aAgent`) nor B (we own the container) — so read both
 >    columns below as techniques rather than as the current supervisor design.

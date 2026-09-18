@@ -148,7 +148,7 @@ a single memory service and hands that same instance to the `Runner` it creates,
 so `preload_memory`, `load_memory`, and the after-turn callback all share it:
 
 ```python
-# vertexai/agent_engines/templates/adk.py, AdkApp.set_up()
+# agentplatform/agent_engines/templates/adk.py, AdkApp.set_up()
 self._tmpl_attrs["memory_service"] = VertexAiMemoryBankService(
     project=project,
     location=agent_engine_location,
