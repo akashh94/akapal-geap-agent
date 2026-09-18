@@ -5,6 +5,14 @@ both run on **Agent Runtime**, why the design looks the way it does, and what
 will bite you when you deploy it to a new project. It is written to be read
 top-to-bottom by someone who has never touched A2A before.
 
+> **Status (2026-09-18): the supervisor no longer serves A2A.** Its hand-written
+> A2A server — `app/app_utils/a2a.py` and the routes it mounted at
+> `/a2a/supervisor` — has been removed. The supervisor is now reached only
+> through the Agent Runtime REST surface (`:query` / `:streamQuery`). Passages
+> below that describe the supervisor *as an A2A server* are therefore
+> historical. The outbound supervisor → planner hop, which is what this document
+> is really about, is unchanged.
+
 Companion docs:
 
 - [`MEMORY_BANK.md`](./MEMORY_BANK.md) / [`LEARNING_MEMORY_BANK.md`](./LEARNING_MEMORY_BANK.md) — long-term memory
@@ -46,12 +54,13 @@ an agent over A2A in **two completely different ways**:
 | Card URL | `…/api/a2a/<name>/.well-known/agent-card.json` | `…/a2a/v1/card` (does not work today, see §9) |
 | Transport | JSON-RPC | HTTP+JSON (REST) only |
 | Deployed with | `agents-cli` | Agent Platform SDK object deploy |
-| Used by | **the supervisor** | **the planner** |
+| Used by | *(no longer used — the supervisor's surface has been removed)* | **the planner** |
 
-Both are legitimately supported. The supervisor is deployed the first way (it
-exists to be *called*), and the planner is deployed the second way (it exists to
-*answer*). The supervisor reaches the planner through the Agent Platform SDK,
-which speaks the platform-native surface.
+Both are legitimately supported. The planner is deployed the second way (it
+exists to *answer*). The supervisor *used* to be deployed the first way, so that
+it could be *called*; that surface has been removed and the supervisor is now
+reached over the platform's REST methods instead. It still reaches the planner
+through the Agent Platform SDK, which speaks the platform-native surface.
 
 > **Mental model:** the two agents are not wired together by configuration
 > inside a shared process. They are two separate cloud services that happen to
@@ -64,13 +73,12 @@ which speaks the platform-native surface.
 
 ```mermaid
 flowchart TB
-    subgraph Client["A2A client / user"]
-        Caller["JSON-RPC SendMessage<br/>to the supervisor"]
+    subgraph Client["Client / user"]
+        Caller["REST :query / :streamQuery<br/>to the supervisor"]
     end
 
     subgraph Sup["akapal-geap-agent — Agent Runtime"]
-        SupApp["FastAPI app<br/>+ attach_a2a_routes()"]
-        SupCard["/api/a2a/supervisor/<br/>.well-known/agent-card.json"]
+        SupApp["FastAPI app<br/>(ADK web + API routes)"]
         Tool["call_financial_planner<br/>(FunctionTool)"]
         Runner1["Runner<br/>supervisor + 5 sub-agents"]
     end
@@ -89,7 +97,6 @@ flowchart TB
     Registry["Agent Registry<br/>mcpServers/agentregistry-…"]
 
     Caller --> SupApp
-    SupApp --- SupCard
     SupApp --> Runner1 --> Tool
     Tool -->|"SDK: agent_engines.get<br/>then on_message_send"| A2aAgent
     A2aAgent --> Exec --> Runner2
@@ -107,7 +114,7 @@ Three repos, three deployment shapes:
 
 | Repo | What it is | Where it runs | Deployed by |
 |---|---|---|---|
-| `akapal-geap-agent` | supervisor + 5 sub-agents | Agent Runtime (app-served A2A) | `agents-cli deploy` |
+| `akapal-geap-agent` | supervisor + 5 sub-agents | Agent Runtime (REST) | `agents-cli deploy` |
 | `akapal-geap-financial-planner` | planner + calculators | Agent Runtime (`A2aAgent`) | Agent Platform SDK |
 | `akapal-mcp-portfolio` | portfolio data | Cloud Run | `gcloud run deploy` |
 
@@ -120,27 +127,33 @@ Three repos, three deployment shapes:
 A card is a small JSON document describing what an agent can do. It is the
 *only* discovery mechanism A2A has.
 
+The supervisor's own card went with its A2A surface, so the example below is the
+**planner's** — which the platform generates and serves (authenticated) at
+`{engine}/a2a/v1/card`. The supervisor's card used to look like this, with
+`"name": "supervisor"` and a `…/api/a2a/supervisor` URL.
+
 ```json
 {
-  "name": "supervisor",
-  "description": "An ADK Agent",
-  "version": "0.1.0",
+  "name": "financial_planner",
+  "description": "Goals-based financial planning: retirement readiness, …",
+  "version": "1.0.0",
   "supportedInterfaces": [
     {
-      "url": "https://us-central1-aiplatform.googleapis.com/reasoningEngines/v1/projects/238721448932/locations/us-central1/reasoningEngines/5324518648168054784/api/a2a/supervisor",
-      "protocolBinding": "JSONRPC",
+      "url": "https://us-central1-aiplatform.googleapis.com/v1beta1/projects/adk-tut-508714/locations/us-central1/reasoningEngines/6854616621567180800/a2a",
+      "protocolBinding": "HTTP+JSON",
       "protocolVersion": "1.0"
     }
   ],
-  "capabilities": { "streaming": true }
+  "capabilities": { "streaming": false, "extendedAgentCard": true }
 }
 ```
 
-**The card advertises *skills*, never *tools*.** The supervisor's card lists 30
+**The card advertises *skills*, never *tools*.** The supervisor's card listed 30
 skills — one per tool, including its internal plumbing (`load_memory`,
 `portfolio_service_unavailable`, …). A peer agent reading it cannot *call* any
 of them. Function schemas never cross the wire in A2A. The only thing that
-crosses is prose.
+crosses is prose. That over-export is precisely why the planner hand-writes its
+skills rather than letting `AgentCardBuilder` derive them.
 
 > **Why this matters:** you cannot give another agent a "tool". You can only tell
 > it what you are good at, and hope it asks. Everything downstream is natural
@@ -198,8 +211,9 @@ words matter:
 Here is an actual verified run. The caller sends one sentence; the answer comes
 back with live portfolio numbers.
 
-**Step 1 — the caller asks the supervisor.** JSON-RPC to the supervisor's A2A
-endpoint:
+**Step 1 — the caller asks the supervisor.** A REST call to the engine's
+`:streamQuery` method. This run predates the A2A removal, so the transcript still
+shows the JSON-RPC form the supervisor used to accept:
 
 ```json
 POST https://us-central1-aiplatform.googleapis.com/reasoningEngines/v1/projects/238721448932/locations/us-central1/reasoningEngines/5324518648168054784/api/a2a/supervisor
@@ -346,8 +360,11 @@ gcloud projects add-iam-policy-binding adk-tut-508714 \
 | File | Role |
 |---|---|
 | `app/tools/a2a_planner_tool.py` | `call_financial_planner`, now SDK-based |
-| `app/app_utils/a2a.py` | `attach_a2a_routes()` — the supervisor's inbound A2A surface |
 | `deploy.personal.env` | `FINANCIAL_PLANNER_ENGINE` and the MCP values |
+
+> `app/app_utils/a2a.py` — the supervisor's inbound A2A surface — has been
+> **removed** (see the status note at the top). `app/fast_api_app.py` now wires
+> the shared session/artifact/memory services directly instead.
 
 ---
 
@@ -400,36 +417,17 @@ is a startup dependency. The runtime SA lacks the permission.
 
 **Fix:** wait ~90 seconds and retry.
 
-### The supervisor's card advertises `http://0.0.0.0:8000/a2a/supervisor`
-
-**Cause:** `agents-cli` calls `env_vars.setdefault("APP_URL", …)` using the
-*existing* engine's resource name. On a first-time `create` there is no existing
-engine, so the default leaks into the card.
-
-**Fix:** run `deploy.personal.sh` a second time. The card is then correct:
-`https://us-central1-aiplatform.googleapis.com/reasoningEngines/v1/…/api/a2a/supervisor`.
-
-### The advertised card URL 404s
-
-`agents-cli` advertises `…/api/a2a/<agent_directory>/…` — i.e. **`/a2a/app`** —
-but the app mounts its routes at `/a2a/<root_agent.name>` — **`/a2a/supervisor`**.
-
-```
-404  /api/a2a/app/.well-known/agent-card.json
-200  /api/a2a/supervisor/.well-known/agent-card.json
-```
-
-Nothing consumes the advertised URL today, so this is latent. Fix by aligning
-`rpc_path` in `attach_a2a_routes` with `agent_directory` from the manifest. This
-is the same mismatch that sank the earlier "Model B" attempt.
-
 ### `handle_authenticated_agent_card` does not exist
 
 The GEAP docs show that method on the SDK object; it is not present in the pinned
 version. The registered operation is `on_get_extended_agent_card`, and the raw
-`{base}/v1/card` path 404s. As of this writing the planner's card is **not
-retrievable by any route we found** — which does not affect the supervisor (it
-uses `on_message_send`) but will block Gemini Enterprise registration later.
+`{base}/v1/card` path 404s.
+
+> **Superseded (2026-09-18):** the planner's card *is* retrievable — it is stored
+> inline in the Agent Registry `Agent` resource as `card.content` (type
+> `A2A_AGENT_CARD`), with its three skills indexed. It is simply not served at a
+> public `.well-known` path. This never affected the supervisor, which uses
+> `on_message_send`.
 
 ### `ruff check` / `ruff format` fail and block the deploy
 

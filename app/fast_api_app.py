@@ -1,18 +1,15 @@
-import contextlib
 import logging
 import os
-from collections.abc import AsyncIterator
 
 import google.auth
-from a2a.server.tasks import InMemoryTaskStore
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from google.adk.cli.fast_api import get_fast_api_app
-from google.adk.runners import Runner
 from google.cloud import logging as google_cloud_logging
 
-from app.app_utils import services
-from app.app_utils.a2a import attach_a2a_routes
+# Imported for its side effect: `services` registers the shared:// factories in
+# ADK's service registry.
+from app.app_utils import services  # noqa: F401
 from app.app_utils.telemetry import setup_telemetry
 from app.app_utils.typing import Feedback
 
@@ -49,35 +46,9 @@ allow_origin = (
     os.getenv("ALLOW_ORIGINS", "").split(",") if os.getenv("ALLOW_ORIGINS") else None
 )
 
-# The agents directory that ADK scans for agent definitions (and, when a2a=True,
-# for agent.json A2A cards). This is the app/ package itself.
+# The agents directory that ADK scans for agent definitions. This is the app/
+# package itself.
 AGENT_DIR = os.path.dirname(os.path.abspath(__file__))
-
-
-@contextlib.asynccontextmanager
-async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    from app.agent import root_agent
-
-    runner = Runner(
-        agent=root_agent,
-        app_name=root_agent.name,
-        session_service=services.get_session_service(),
-        artifact_service=services.get_artifact_service(),
-        memory_service=services.get_memory_service(),
-        auto_create_session=True,
-    )
-    app.state.runner = runner
-    app.state.agent_app_name = root_agent.name
-    # Register A2A (Agent2Agent) routes under /a2a/<app_name> sharing the same
-    # runner, so A2A clients and Gemini Enterprise A2A can reach the agent.
-    await attach_a2a_routes(
-        app,
-        agent=root_agent,
-        runner=runner,
-        task_store=InMemoryTaskStore(),
-        rpc_path=f"/a2a/{root_agent.name}",
-    )
-    yield
 
 
 app: FastAPI = get_fast_api_app(
@@ -85,7 +56,6 @@ app: FastAPI = get_fast_api_app(
     web=True,
     allow_origins=allow_origin,
     auto_create_session=True,
-    lifespan=lifespan,
     gemini_enterprise_app_name="app",
 )
 app.title = "geap-agents"

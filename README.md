@@ -22,17 +22,15 @@ and IAM, and the failure modes to expect — is documented in
 - **`app/tools/a2a_planner_tool.py`** — `call_financial_planner` FunctionTool:
   delegates financial-planning questions to the remote planner over A2A, via the
   Agent Platform SDK (`agent_engines.get` → `on_message_send`).
-- **`app/fast_api_app.py`** — FastAPI app wiring the runner, sessions, A2A routes,
-  `/feedback` endpoint, and Cloud Logging.
-- **`app/app_utils/a2a.py`** — `attach_a2a_routes()`: registers the A2A agent card and
-  JSON-RPC endpoints under `/a2a/<agent_name>`.
+- **`app/fast_api_app.py`** — FastAPI app wiring the ADK web/API routes, the shared
+  session/artifact/memory services, `/feedback`, and Cloud Logging.
 - **`app/config/models.py`** — shared Gemini model config (reads `AGENT_MODEL` /
   `MODEL_LOCATION`; retries on 429/5xx with exponential backoff).
 - **`agents-cli-manifest.yaml`** — manifest for `agents-cli` deployment (Agent Engine).
 
 ```
 user ──▶ /api (ADK web/API)        ──▶ Runner ──▶ supervisor
-        /a2a/supervisor/ (A2A RPC) ──▶ A2aAgentExecutor ──▶ Runner ──▶ supervisor
+        reasoningEngines :query / :streamQuery      ──▶ Runner ──▶ supervisor
                                                                          │
                                               ┌──────────┬──────────────┼─────────────┐
                                          portfolio    trade    market_research  support  mortgage
@@ -78,8 +76,6 @@ MCP_PORTFOLIO_URL=http://localhost:8080/sse
 | `http://localhost:8000/docs` | FastAPI interactive docs |
 | `http://localhost:8000/dev-ui/` | ADK web UI — interactive agent playground (chat, debug, eval, graph) |
 | `http://localhost:8000/api/` | ADK web/API routes |
-| `http://localhost:8000/a2a/supervisor` | A2A JSON-RPC endpoint |
-| `http://localhost:8000/a2a/supervisor/.well-known/agent-card.json` | A2A agent card |
 | `POST http://localhost:8000/feedback` | Log feedback |
 
 ### Notes
@@ -89,37 +85,6 @@ MCP_PORTFOLIO_URL=http://localhost:8080/sse
   agents fail when invoked until the MCP server is up.
 - `vertexai.init()` and Cloud Logging degrade gracefully with warnings if
   credentials are missing.
-
-## Calling the agent via A2A
-
-Any A2A-compliant client (Gemini Enterprise, another ADK agent) can invoke the
-agent:
-
-1. **Discover** — `GET /a2a/supervisor/.well-known/agent-card.json` for the agent
-   card.
-2. **Send a message** — `POST /a2a/supervisor` with a JSON-RPC body (the A2A
-   method is `SendMessage`; the legacy `message/send` draft name is rejected):
-
-```json
-{
-  "jsonrpc": "2.0",
-  "id": 1,
-  "method": "SendMessage",
-  "params": {
-    "message": {
-      "role": "ROLE_USER",
-      "messageId": "msg-1",
-      "parts": [{ "text": "What's my portfolio worth?" }]
-    }
-  }
-}
-```
-
-Streaming clients use `SendStreamingMessage`. The A2A routes share the same
-`Runner` (and thus the same sessions/artifacts) as the main ADK path.
-
-> **Note:** the A2A endpoints have no authentication. The `ALLOW_ORIGINS` env var
-> only affects browser CORS. Add auth middleware before exposing publicly.
 
 ## Configuration
 
@@ -135,8 +100,6 @@ Streaming clients use `SendStreamingMessage`. The A2A routes share the same
 | `MCP_REGISTRY_SERVER` | — | Full name of the registered MCP server (`projects/.../locations/.../mcpServers/...`); when set, agents connect via API Registry instead of the raw SSE URL |
 | `MEMORY_BANK_ID` | `$GOOGLE_CLOUD_AGENT_ENGINE_ID` | Vertex AI Memory Bank instance ID for long-term agent memory (`projects/.../reasoningEngines/<id>`) |
 | `FINANCIAL_PLANNER_ENGINE` | `projects/PLACEHOLDER...` | ReasoningEngine resource name of the remote financial planner (Agent Runtime A2A) |
-| `APP_URL` | `http://0.0.0.0:8000` | Base URL advertised on the A2A agent card |
-| `AGENT_VERSION` | `0.1.0` | Version advertised on the A2A agent card |
 | `ALLOW_ORIGINS` | — | Comma-separated CORS origins (browser only) |
 
 ### Config var details
@@ -194,17 +157,8 @@ Streaming clients use `SendStreamingMessage`. The A2A routes share the same
   client. Each call uses a fresh message/task (stateless by design). The value
   is printed by the planner repo's `deploy.personal.a2a.sh` / `deploy.a2a.sh`.
 
-- **`APP_URL`** — Base URL advertised on the A2A agent card (used to build the
-  card's `rpcUrl`). Default `http://0.0.0.0:8000`; set it to the deployed
-  service's public URL so A2A clients can find the JSON-RPC endpoint.
-
-- **`AGENT_VERSION`** — Version string advertised on the A2A agent card.
-  Default `0.1.0`. Bump it when you ship a deploy so clients can see the
-  change.
-
-- **`ALLOW_ORIGINS`** — Comma-separated CORS origins, browser-only. The A2A
-  endpoints have **no authentication**; this does not secure them. Add auth
-  middleware before exposing publicly.
+- **`ALLOW_ORIGINS`** — Comma-separated CORS origins, browser-only. It does not
+  authenticate anything; add auth middleware before exposing publicly.
 
 - **`LOGS_BUCKET_NAME`** — (optional) GCS bucket for prompt/response logging.
   When set together with `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT`,
