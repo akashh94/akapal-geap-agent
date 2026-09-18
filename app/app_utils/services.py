@@ -76,21 +76,33 @@ def get_artifact_service():
 
 @functools.cache
 def get_memory_service():
-    """Process-wide Vertex AI Memory Bank service shared across serving surfaces.
+    """Process-wide memory service shared across serving surfaces.
 
-    Reads MEMORY_BANK_ID (falling back to the runtime-injected
+    Uses Vertex AI Memory Bank when an instance ID is configured, read from
+    MEMORY_BANK_ID (falling back to the runtime-injected
     GOOGLE_CLOUD_AGENT_ENGINE_ID) so the agent can be pointed at a dedicated
-    Memory Bank instance. Fails fast if no instance ID is configured.
+    Memory Bank instance. With no instance ID it falls back to in-memory, so the
+    app still boots without a Memory Bank — matching the session and artifact
+    services, and keeping local development working.
     """
+    agent_engine_id = os.environ.get(
+        "MEMORY_BANK_ID",
+        os.environ.get("GOOGLE_CLOUD_AGENT_ENGINE_ID"),
+    )
+    if not agent_engine_id:
+        logger.info(
+            "memory backend: in-memory (set MEMORY_BANK_ID or "
+            "GOOGLE_CLOUD_AGENT_ENGINE_ID to use Vertex AI Memory Bank)"
+        )
+        from google.adk.memory import InMemoryMemoryService
+
+        return InMemoryMemoryService()
+
     from google.adk.memory import VertexAiMemoryBankService
 
     project = os.environ.get("GOOGLE_CLOUD_PROJECT")
     location = os.environ.get("GOOGLE_CLOUD_AGENT_ENGINE_LOCATION") or os.environ.get(
         "GOOGLE_CLOUD_LOCATION"
-    )
-    agent_engine_id = os.environ.get(
-        "MEMORY_BANK_ID",
-        os.environ.get("GOOGLE_CLOUD_AGENT_ENGINE_ID"),
     )
     logger.info(
         "memory backend: vertex-ai-memory-bank (project=%s location=%s engine=%s)",
