@@ -58,7 +58,7 @@ flowchart LR
         FP --> FPRunner --> FPMemSvc["MemoryService"]
     end
 
-    Bank["Vertex AI Memory Bank<br/>(MEMORY_BANK_ID)"]
+    Bank["Vertex AI Memory Bank"]
 
     UI --> Runner
     A2AC --> Runner
@@ -104,57 +104,42 @@ callback persists the session to Memory Bank via
 
 ### Service wiring
 
-`app/app_utils/services.py` exposes a process-wide, cached
-`get_memory_service()`:
+`AdkApp.set_up()` builds the memory service for us. Once the platform injects
+`GOOGLE_CLOUD_AGENT_ENGINE_ID`, it constructs a `VertexAiMemoryBankService`
+against that engine's Memory Bank; with no engine ID (local runs) it falls back
+to `InMemoryMemoryService`:
 
 ```python
-@functools.cache
-def get_memory_service():
-    """Process-wide Vertex AI Memory Bank service shared across serving surfaces."""
-    from google.adk.memory import VertexAiMemoryBankService
-
-    project = os.environ.get("GOOGLE_CLOUD_PROJECT")
-    location = os.environ.get("GOOGLE_CLOUD_AGENT_ENGINE_LOCATION") or os.environ.get(
-        "GOOGLE_CLOUD_LOCATION"
-    )
-    agent_engine_id = os.environ.get(
-        "MEMORY_BANK_ID",
-        os.environ.get("GOOGLE_CLOUD_AGENT_ENGINE_ID"),
-    )
-    logger.info(
-        "memory backend: vertex-ai-memory-bank (project=%s location=%s engine=%s)",
-        project,
-        location,
-        agent_engine_id,
-    )
-    return VertexAiMemoryBankService(
+# vertexai/agent_engines/templates/adk.py, AdkApp.set_up()
+elif "GOOGLE_CLOUD_AGENT_ENGINE_ID" in os.environ:
+    self._tmpl_attrs["memory_service"] = VertexAiMemoryBankService(
         project=project,
-        location=location,
-        agent_engine_id=agent_engine_id,
+        location=agent_engine_location,
+        agent_engine_id=os.environ.get("GOOGLE_CLOUD_AGENT_ENGINE_ID"),
     )
+else:
+    self._tmpl_attrs["memory_service"] = InMemoryMemoryService()
 ```
 
-- `MEMORY_BANK_ID` selects the Memory Bank instance; falls back to the
-  runtime-injected `GOOGLE_CLOUD_AGENT_ENGINE_ID` when unset.
-- The service is registered under `shared://` in the service registry, so every
-  serving surface shares one instance.
-- It falls back to `InMemoryMemoryService` (logging which backend it chose) when
-  no instance ID is configured, so the app still boots locally. Vertex AI Memory
-  Bank is used whenever `MEMORY_BANK_ID` or `GOOGLE_CLOUD_AGENT_ENGINE_ID` is set.
+The template hands that same instance to the `Runner` it builds, which is what
+makes `callback_context.add_session_to_memory()` (the write path above) and
+`preload_memory` / `load_memory` (the read path) work.
 
-**This repo** selects it by URI, so ADK's own runner picks it up:
+To point at a *dedicated* Memory Bank instance instead of the runtime's own, pass
+a `memory_service_builder` to `AdkApp` in `deploy_adk.py`:
 
 ```python
-app = get_fast_api_app(
-    ...,
-    session_service_uri="shared://session",
-    artifact_service_uri="shared://artifact",
-    memory_service_uri="shared://memory",
-)
+app = AdkApp(agent=root_agent, memory_service_builder=my_memory_service_builder)
 ```
 
-**The planner repo** still passes it to a `Runner` directly, because it builds its
-own runner for the `A2aAgent` and A2A paths:
+> **Historical:** `app/app_utils/services.py` used to do this with a
+> `shared://memory` registry entry, selected from the FastAPI app via
+> `memory_service_uri`. Both that module and the `MEMORY_BANK_ID` env var were
+> removed when the supervisor moved to an `AdkApp` object deploy — the
+> template's default already matches what the registry did.
+
+**The planner repo** has no `AdkApp` on its A2A path, so it still builds the
+memory service itself and passes it to a `Runner`:
 
 ```python
 runner = Runner(
@@ -169,14 +154,12 @@ runner = Runner(
 
 ### Files changed
 
-| File (both repos) | Purpose |
+| File | Purpose |
 | --- | --- |
-| `app/app_utils/services.py` | Added `get_memory_service()` + `shared://` registration |
-| `app/app_utils/memory_callbacks.py` | New: `save_session_to_memory_callback` |
+| `app/app_utils/memory_callbacks.py` | `save_session_to_memory_callback` |
 | `app/agents/*.py` | Added `preload_memory`, `load_memory` tools + `after_agent_callback` |
 | `app/prompts/*.py` | Added `MEMORY:` instruction block |
-| `app/fast_api_app.py` | Selects the shared services via `*_service_uri` (this repo) |
-| `geap.deploy.env` / `deploy.personal.env` | Added `MEMORY_BANK_ID` |
+| `deploy_adk.py` | `AdkApp` — supplies the Memory Bank service by default (this repo) |
 
 ## Configuration
 
@@ -184,18 +167,18 @@ runner = Runner(
 | --- | --- | --- |
 | `GOOGLE_CLOUD_PROJECT` | — | GCP project hosting the Memory Bank |
 | `GOOGLE_CLOUD_LOCATION` | — | Region of the Memory Bank (unless `GOOGLE_CLOUD_AGENT_ENGINE_LOCATION` is set) |
+| `GOOGLE_CLOUD_AGENT_ENGINE_ID` | — | Runtime-injected. Selects the Memory Bank instance |
 | `GOOGLE_CLOUD_AGENT_ENGINE_LOCATION` | `GOOGLE_CLOUD_LOCATION` | Region of the runtime's Memory Bank |
-| `MEMORY_BANK_ID` | `GOOGLE_CLOUD_AGENT_ENGINE_ID` | Memory Bank instance ID (e.g. `456` in `projects/.../reasoningEngines/456`) |
 
 ## Prerequisites
 
 Before Memory Bank works, you need:
 
 1. **Agent Platform API enabled** on the Google Cloud project.
-2. **A Memory Bank instance** (an Agent Runtime / reasoning engine). When
-   deployed via Agent Runtime, the runtime's built-in Memory Bank is used
-   automatically (`MEMORY_BANK_ID` unset → engine ID). To use a dedicated
-   instance, create one and set `MEMORY_BANK_ID` to its numeric ID.
+2. **A Memory Bank instance** (an Agent Runtime / reasoning engine). The
+   runtime's built-in Memory Bank is used automatically once
+   `GOOGLE_CLOUD_AGENT_ENGINE_ID` is injected. To use a *dedicated* instance
+   instead, pass a `memory_service_builder` to `AdkApp`.
 3. **Authentication**:
    - Local: `gcloud auth application-default login`.
    - Deployed: the runtime's service identity.
@@ -216,19 +199,21 @@ once, with no duplicate tool names.
 
 ### Local (requires a Memory Bank instance + ADC)
 
-1. `gcloud auth application-default login`; set `GOOGLE_CLOUD_PROJECT`,
-   `GOOGLE_CLOUD_LOCATION`, `MEMORY_BANK_ID`.
-2. Start the app; startup log shows
-   `memory backend: vertex-ai-memory-bank`.
-3. Session A: "I prefer conservative investments." Finish.
-4. New Session B: "What are my investment preferences?" — the agent answers
+A local run has no `GOOGLE_CLOUD_AGENT_ENGINE_ID`, so `AdkApp` uses in-memory
+memory and cross-session recall cannot be exercised. To point a local run at a
+real Memory Bank, export `GOOGLE_CLOUD_AGENT_ENGINE_ID` (and
+`GOOGLE_CLOUD_PROJECT` / `GOOGLE_CLOUD_LOCATION`) so `AdkApp.set_up()` builds the
+`VertexAiMemoryBankService`, then:
+
+1. Session A: "I prefer conservative investments." Finish.
+2. New Session B: "What are my investment preferences?" — the agent answers
    from memory (proves write + read end-to-end).
 
 ### Deployed — 4-step checklist
 
-1. **Wiring** — `MEMORY_BANK_ID` set (or engine ID injected); startup log
-   confirms the backend; Cloud Logging shows `Ingest events request triggered.`
-   after a turn.
+1. **Wiring** — `GOOGLE_CLOUD_AGENT_ENGINE_ID` is injected by the runtime, so
+   `AdkApp.set_up()` builds the `VertexAiMemoryBankService`; Cloud Logging shows
+   `Ingest events request triggered.` after a turn.
 2. **Cross-session recall** — Session A states a preference; a new Session B
    asks for it and the agent answers from memory.
 3. **Direct bank query** (isolates agent vs bank):

@@ -2,32 +2,28 @@
 
 set -euo pipefail
 
-# Resolve this project's root (where agents-cli-manifest.yaml lives) and run
-# agents-cli from there, so the manifest and pyproject.toml are found
+# Run from this project's root, so pyproject.toml and uv.lock are found
 # regardless of the cwd.
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$PROJECT_ROOT"
 
-# uv resolves the project environment from VIRTUAL_ENV if set. When this
-# script runs from a shell where a venv in a parent directory is active,
-# uv complains that the interpreter is "outside the project directory".
-# Unset it so uv uses the project-local .venv instead.
+# uv resolves the project environment from VIRTUAL_ENV if set. When this script
+# runs from a shell where a venv in a parent directory is active, uv complains
+# that the interpreter is "outside the project directory". Unset it so uv uses
+# the project-local .venv instead.
 unset VIRTUAL_ENV
 
 # Office environment config (self-contained): PROJECT_ID / REGION / AGENT_MODEL /
-# MODEL_LOCATION / MCP_PORTFOLIO_URL / FINANCIAL_PLANNER_ENGINE all come from
-# geap.deploy.env — the single source of truth for the office deployment.
+# MODEL_LOCATION / MCP_PORTFOLIO_URL / MCP_REGISTRY_SERVER /
+# FINANCIAL_PLANNER_ENGINE / STAGING_BUCKET all come from geap.deploy.env — the
+# single source of truth for the office deployment.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/geap.deploy.env"
 
-# "agent_runtime" is the target that maps to the Vertex AI Agent Engine /
-# Reasoning Engine resource that geap-poc/server.js already calls
-# (GEAP_ENGINE_ID et al.).
-agents-cli deploy \
-  --deployment-target agent_runtime \
-  --project "$PROJECT_ID" \
-  --region "$REGION" \
-  --update-env-vars "AGENT_MODEL=${AGENT_MODEL},MODEL_LOCATION=${MODEL_LOCATION},MCP_PORTFOLIO_URL=${MCP_PORTFOLIO_URL},MCP_REGISTRY_PROJECT_ID=${MCP_REGISTRY_PROJECT_ID},MCP_REGISTRY_LOCATION=${MCP_REGISTRY_LOCATION},MCP_REGISTRY_SERVER=${MCP_REGISTRY_SERVER},FINANCIAL_PLANNER_URL=${FINANCIAL_PLANNER_URL}" \
-  --min-instances 1 \
-  --max-instances 1 \
-  --no-confirm-project
+# deploy_adk.py reads the SDK's variable names; the env file names them
+# PROJECT_ID and REGION. This translation is the reason this wrapper exists
+# rather than running the .py directly.
+export GOOGLE_CLOUD_PROJECT="$PROJECT_ID"
+export GOOGLE_CLOUD_LOCATION="$REGION"
+
+uv run python deploy_adk.py

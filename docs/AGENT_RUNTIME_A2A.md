@@ -53,7 +53,7 @@ an agent over A2A in **two completely different ways**:
 | Public agent card | **Yes** — `.well-known/agent-card.json` | **No** — authenticated only |
 | Card URL | `…/api/a2a/<name>/.well-known/agent-card.json` | `…/a2a/v1/card` (does not work today, see §9) |
 | Transport | JSON-RPC | HTTP+JSON (REST) only |
-| Deployed with | `agents-cli` | Agent Platform SDK object deploy |
+| Deployed with | Agent Platform SDK object deploy | Agent Platform SDK object deploy |
 | Used by | *(no longer used — the supervisor's surface has been removed)* | **the planner** |
 
 Both are legitimately supported. The planner is deployed the second way (it
@@ -114,7 +114,7 @@ Three repos, three deployment shapes:
 
 | Repo | What it is | Where it runs | Deployed by |
 |---|---|---|---|
-| `akapal-geap-agent` | supervisor + 5 sub-agents | Agent Runtime (REST) | `agents-cli deploy` |
+| `akapal-geap-agent` | supervisor + 5 sub-agents | Agent Runtime (ADK agent) | SDK object deploy |
 | `akapal-geap-financial-planner` | planner + calculators | Agent Runtime (`A2aAgent`) | Agent Platform SDK |
 | `akapal-mcp-portfolio` | portfolio data | Cloud Run | `gcloud run deploy` |
 
@@ -282,7 +282,7 @@ value the next step needs.
 |---|---|---|
 | 1 | `akapal-mcp-portfolio` | `./build.personal.sh` then `./deploy.personal.sh` |
 | 2 | `akapal-geap-financial-planner` | `./deploy.personal.a2a.sh` |
-| 3 | `akapal-geap-agent` | `./build.personal.sh` then `./deploy.personal.sh` |
+| 3 | `akapal-geap-agent` | `./build.sh` then `./deploy.personal.sh` |
 
 Then wire the printed values into the env files:
 
@@ -291,11 +291,6 @@ Then wire the printed values into the env files:
 | `MCP_PORTFOLIO_URL` | both agent repos' `deploy.personal.env` |
 | `MCP_REGISTRY_SERVER` | both agent repos' `deploy.personal.env` |
 | `FINANCIAL_PLANNER_ENGINE` | `akapal-geap-agent/deploy.personal.env` |
-
-> **Run the supervisor's deploy twice on a fresh engine.** `agents-cli` only
-> sets `APP_URL` from an *existing* engine's resource name, so a first-time
-> `create` leaves the card advertising `http://0.0.0.0:8000/a2a/supervisor`.
-> The second deploy corrects it. See §9.
 
 ---
 
@@ -363,8 +358,9 @@ gcloud projects add-iam-policy-binding adk-tut-508714 \
 | `deploy.personal.env` | `FINANCIAL_PLANNER_ENGINE` and the MCP values |
 
 > `app/app_utils/a2a.py` — the supervisor's inbound A2A surface — has been
-> **removed** (see the status note at the top). `app/fast_api_app.py` now wires
-> the shared session/artifact/memory services directly instead.
+> **removed** (see the status note at the top). The supervisor no longer runs a
+> server at all: it is deployed as an `AdkApp` object and the platform serves its
+> operations (`:query` / `:streamQuery`).
 
 ---
 
@@ -431,7 +427,7 @@ version. The registered operation is `on_get_extended_agent_card`, and the raw
 
 ### `ruff check` / `ruff format` fail and block the deploy
 
-`agents-cli lint` runs both across the **whole repo**. Note that `ruff format`
+`./build.sh` runs both across the **whole repo**. Note that `ruff format`
 also reformats Python code blocks embedded in `.md` files.
 
 ---

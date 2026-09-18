@@ -2,8 +2,11 @@
 
 GEAP Agent — an ADK-powered multi-agent financial advisor. A single "supervisor"
 agent orchestrates a team of specialist sub-agents (portfolio, trading, market
-research, customer support, mortgage) and is exposed over both the standard ADK
-web/API surface and the A2A (Agent2Agent) protocol.
+research, customer support, mortgage) and is deployed to **Agent Runtime** as an
+ADK agent driven through the platform's `:query` / `:streamQuery` methods.
+
+There is no HTTP server in this repo. The deploy is an SDK object deploy of a
+`vertexai.agent_engines.AdkApp`, so the platform serves the agent's operations.
 
 Long-term, cross-session memory is provided by Vertex AI Memory Bank — see
 [docs/MEMORY_BANK.md](docs/MEMORY_BANK.md) for the full implementation guide.
@@ -15,27 +18,28 @@ and IAM, and the failure modes to expect — is documented in
 
 ## Architecture
 
-- **`app/agent.py`** — entry point exposing `root_agent` for ADK web UI discovery.
+- **`app/agent.py`** — entry point exposing `root_agent`. Also runs the
+  process-wide setup (dotenv, telemetry) at import, since this module is what the
+  deployed `AdkApp` resolves.
 - **`app/agents/supervisor.py`** — the `supervisor` root agent that routes to sub-agents.
 - **`app/agents/`** — specialist agents: `portfolio_analyst`, `trade_assistant`,
   `market_research`, `customer_support`, `mortgage_agent`.
 - **`app/tools/a2a_planner_tool.py`** — `call_financial_planner` FunctionTool:
   delegates financial-planning questions to the remote planner over A2A, via the
   Agent Platform SDK (`agent_engines.get` → `on_message_send`).
-- **`app/fast_api_app.py`** — FastAPI app wiring the ADK web/API routes, the shared
-  session/artifact/memory services, `/feedback`, and Cloud Logging.
+- **`app/app_utils/api_registry_mcp.py`** — builds the portfolio MCP toolset,
+  preferring the Agent Registry entry over the raw URL.
 - **`app/config/models.py`** — shared Gemini model config (reads `AGENT_MODEL` /
   `MODEL_LOCATION`; retries on 429/5xx with exponential backoff).
-- **`agents-cli-manifest.yaml`** — manifest for `agents-cli` deployment (Agent Engine).
+- **`deploy_adk.py`** — the object deploy (`AdkApp` + requirements + `app` package).
 
 ```
-user ──▶ /api (ADK web/API)        ──▶ Runner ──▶ supervisor
-        reasoningEngines :query / :streamQuery      ──▶ Runner ──▶ supervisor
-                                                                         │
-                                              ┌──────────┬──────────────┼─────────────┐
-                                         portfolio    trade    market_research  support  mortgage
-                                                                         │
-                                                              MCP portfolio server
+client ──▶ reasoningEngines :query / :streamQuery ──▶ supervisor
+                                                          │
+                               ┌──────────┬───────────────┼─────────────┐
+                          portfolio    trade    market_research  support  mortgage
+                                                          │
+                                               MCP portfolio server
 ```
 
 ## Requirements
@@ -43,23 +47,17 @@ user ──▶ /api (ADK web/API)        ──▶ Runner ──▶ supervisor
 - Python >= 3.11
 - [uv](https://docs.astral.sh/uv/) (recommended; a `uv.lock` is committed)
 - Google Cloud credentials with access to the model configured in `AGENT_MODEL`
-  (the app runs locally without them, but agent calls need them)
+  (the agent loads without them, but model calls need them)
 
 ## Local development
 
 ```bash
-uv sync          # install dependencies from uv.lock
-uv run uvicorn app.fast_api_app:app --host 0.0.0.0 --port 8000 --reload
+uv sync
+uv run adk web app      # ADK dev UI (chat, debug, eval, graph)
 ```
 
-Without `uv`:
-
-```bash
-pip install -e .
-uvicorn app.fast_api_app:app --host 0.0.0.0 --port 8000 --reload
-```
-
-The app loads `.env` at startup. A minimal `.env` looks like:
+`app/` is a single-agent directory, so point ADK straight at it. The agent loads
+`.env` at import. A minimal `.env` looks like:
 
 ```bash
 GOOGLE_CLOUD_PROJECT=your-project-id
@@ -69,77 +67,69 @@ MODEL_LOCATION=global
 MCP_PORTFOLIO_URL=http://localhost:8080/sse
 ```
 
-### What comes up
-
-| Endpoint | Description |
-| --- | --- |
-| `http://localhost:8000/docs` | FastAPI interactive docs |
-| `http://localhost:8000/dev-ui/` | ADK web UI — interactive agent playground (chat, debug, eval, graph) |
-| `http://localhost:8000/api/` | ADK web/API routes |
-| `POST http://localhost:8000/feedback` | Log feedback |
+Locally, sessions and memory are in-memory. After deploying, `AdkApp` switches to
+Vertex AI sessions and Vertex AI Memory Bank automatically — see the
+`GOOGLE_CLOUD_AGENT_ENGINE_ID` entry below.
 
 ### Notes
 
 - Several sub-agents connect to an MCP portfolio server at `MCP_PORTFOLIO_URL`
-  (default `http://localhost:8080/sse`). The app starts without it, but those
-  agents fail when invoked until the MCP server is up.
-- `vertexai.init()` and Cloud Logging degrade gracefully with warnings if
-  credentials are missing.
+  (default `http://localhost:8080/sse`). The agent starts without it, and those
+  agents degrade to an informational tool rather than failing the turn.
+- `setup_telemetry()` and the Cloud Logging exporters degrade gracefully with
+  warnings when credentials are missing.
 
 ## Configuration
 
 | Env var | Default | Purpose |
 | --- | --- | --- |
-| `GOOGLE_CLOUD_PROJECT` | — | GCP project (also used for Vertex AI init) |
+| `GOOGLE_CLOUD_PROJECT` | — | GCP project |
 | `GOOGLE_CLOUD_LOCATION` | — | GCP region |
+| `STAGING_BUCKET` | — | GCS bucket for object-deploy artifacts (deploy-time only) |
 | `AGENT_MODEL` | `gemini-2.5-flash` | Model used by all agents |
 | `MODEL_LOCATION` | `global` | Vertex AI endpoint location for model calls |
-| `MCP_PORTFOLIO_URL` | `http://localhost:8080/sse` | MCP portfolio server (SSE for local dev; Streamable HTTP `/mcp` when deployed) |
-| `MCP_REGISTRY_PROJECT_ID` | `$PROJECT_ID` | GCP project hosting the API Registry |
-| `MCP_REGISTRY_LOCATION` | `global` | Location of the API Registry resources |
-| `MCP_REGISTRY_SERVER` | — | Full name of the registered MCP server (`projects/.../locations/.../mcpServers/...`); when set, agents connect via API Registry instead of the raw SSE URL |
-| `MEMORY_BANK_ID` | `$GOOGLE_CLOUD_AGENT_ENGINE_ID` | Vertex AI Memory Bank instance ID for long-term agent memory (`projects/.../reasoningEngines/<id>`) |
+| `MCP_PORTFOLIO_URL` | `http://localhost:8080/sse` | MCP portfolio server (fallback when `MCP_REGISTRY_SERVER` is unset) |
+| `MCP_REGISTRY_PROJECT_ID` | `$PROJECT_ID` | GCP project hosting the Agent Registry |
+| `MCP_REGISTRY_LOCATION` | `global` | Location of the Agent Registry resources |
+| `MCP_REGISTRY_SERVER` | — | Full name of the registered MCP server (`projects/.../locations/.../mcpServers/...`); when set, agents connect via Agent Registry instead of the raw URL |
 | `FINANCIAL_PLANNER_ENGINE` | `projects/PLACEHOLDER...` | ReasoningEngine resource name of the remote financial planner (Agent Runtime A2A) |
-| `ALLOW_ORIGINS` | — | Comma-separated CORS origins (browser only) |
+| `LOGS_BUCKET_NAME` | — | (optional) GCS bucket for prompt/response logging |
 
 ### Config var details
 
-- **`GOOGLE_CLOUD_PROJECT`** — Your GCP project ID. Used for `vertexai.init()` and
-  Cloud Logging at startup. On Agent Engine / Cloud Run this is resolved
-  automatically from the service identity, so you normally don't set it in the
-  deployed environment. Set it locally (or in `.env`) to match your project.
-  Read in `app/fast_api_app.py` and `app/app_utils/services.py`.
+- **`GOOGLE_CLOUD_PROJECT`** — Your GCP project ID. Injected by the runtime when
+  deployed; set it locally (or in `.env`) to match your project. Read at deploy
+  time by `deploy_adk.py` and at call time by `app/tools/a2a_planner_tool.py`.
 
-- **`GOOGLE_CLOUD_LOCATION`** — GCP region, e.g. `us-central1`. Used by
-  `services.py` for the Vertex AI session service when running on Agent
-  Engine. Note `MODEL_LOCATION` (below) is separate — it controls which Vertex
-  endpoint the model calls route to, not where the app runs.
+- **`GOOGLE_CLOUD_LOCATION`** — GCP region, e.g. `us-central1`. Used by the
+  supervisor's A2A client, by `AdkApp`'s session and memory services, and by
+  `vertexai.Client`. Note `MODEL_LOCATION` (below) is separate — it controls
+  which Vertex endpoint the model calls route to, not where the agent runs.
 
 - **`AGENT_MODEL`** — The Gemini model used by *every* agent (supervisor and
   sub-agents). Default `gemini-2.5-flash` (the cheapest Gemini text model).
   Read at call time by `app/config/models.py`, so you can change it via the
-  deployment env vars without rebuilding the container.
+  deployment env vars without redeploying.
 
 - **`MODEL_LOCATION`** — Vertex AI endpoint location for model calls. Default
   `global`, which spreads load across regions and avoids dynamic shared-quota
-  throttling on regional endpoints. The Agent Engine instance still lives in
-  its configured region; only model requests go global.
+  throttling on regional endpoints. The engine instance still lives in its
+  configured region; only model requests go global.
 
 - **`MCP_PORTFOLIO_URL`** — URL of the MCP portfolio server used by the
   portfolio/trade/market-research/support agents via `ResilientMcpToolset`.
   Default `http://localhost:8080/sse` for local dev. Used as a fallback when
   `MCP_REGISTRY_SERVER` is not set. The agents degrade gracefully (an
   informational tool) if the server is unreachable — they won't crash the turn.
-  The deployed portfolio server is Streamable HTTP at
-  `https://mcp-portfolio-947331501288.us-central1.run.app/mcp`.
 
 - **`MCP_REGISTRY_SERVER`** (plus `MCP_REGISTRY_PROJECT_ID` /
   `MCP_REGISTRY_LOCATION`) — when set, the agents connect to the portfolio MCP
-  server through the Google Cloud **API Registry** instead of the raw SSE URL.
-  The value is the full resource name of the registered MCP server, e.g.
+  server through the Google Cloud **Agent Registry** instead of the raw URL. The
+  value is the full resource name of the registered MCP server, e.g.
   `projects/<project>/locations/<location>/mcpServers/mcp-portfolio`. The
-  registry provides discovery and auth for the MCP endpoint (streamable HTTP
-  at `/mcp`). See `app/app_utils/api_registry_mcp.py`.
+  registry provides discovery and auth for the MCP endpoint. See
+  `app/app_utils/api_registry_mcp.py`. The runtime service account needs
+  `roles/agentregistry.viewer`.
 
 - **`FINANCIAL_PLANNER_ENGINE`** — full ReasoningEngine resource name of the
   separately-deployed financial planner that the supervisor reaches through the
@@ -157,91 +147,72 @@ MCP_PORTFOLIO_URL=http://localhost:8080/sse
   client. Each call uses a fresh message/task (stateless by design). The value
   is printed by the planner repo's `deploy.personal.a2a.sh` / `deploy.a2a.sh`.
 
-- **`ALLOW_ORIGINS`** — Comma-separated CORS origins, browser-only. It does not
-  authenticate anything; add auth middleware before exposing publicly.
-
 - **`LOGS_BUCKET_NAME`** — (optional) GCS bucket for prompt/response logging.
   When set together with `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT`,
   `setup_telemetry()` (`app/app_utils/telemetry.py`) enables GenAI
   prompt-response logging to `gs://<bucket>/completions`. Without it, logging
   falls back to Cloud Logging metadata only.
 
-- **`SESSION_SERVICE_URI`** — (advanced) Override the session service used by
-  `services.py`. Defaults to in-memory, or to the Vertex AI session service
-  when `GOOGLE_CLOUD_AGENT_ENGINE_ID` is present. Set this only if you want a
-  specific session backend (e.g. a SQL/Redis URI).
-
 - **`GOOGLE_CLOUD_AGENT_ENGINE_ID`** — (advanced, runtime-injected) Set by the
-  Agent Engine platform at deploy time. `services.py` uses it (with
-  `GOOGLE_CLOUD_AGENT_ENGINE_LOCATION`) to select the
-  `VertexAiSessionService`, so sessions persist across the deployed
+  platform at deploy time. `AdkApp.set_up()` uses it (with
+  `GOOGLE_CLOUD_AGENT_ENGINE_LOCATION`) to build the `VertexAiSessionService` and
+  the `VertexAiMemoryBankService`, so sessions and memories persist across
   containers. You normally don't set this by hand.
 
 - **`GOOGLE_CLOUD_AGENT_ENGINE_LOCATION`** — (advanced, runtime-injected)
-  Region of the Agent Engine instance, used with the engine ID above for
-  session service location. Not the same as `MODEL_LOCATION`.
+  Region of the engine instance, used with the engine ID above. Not the same as
+  `MODEL_LOCATION`.
 
-- **`MEMORY_BANK_ID`** — Vertex AI Memory Bank instance ID used for long-term
-  agent memory (e.g. `456` in
-  `projects/<project>/locations/<region>/reasoningEngines/456`). Defaults to
-  `GOOGLE_CLOUD_AGENT_ENGINE_ID` when unset, so deployed agents use their
-  runtime's Memory Bank automatically. Set it explicitly to point at a
-  dedicated Memory Bank instance. All agents (supervisor, sub-agents, and the
-  financial planner) use `preload_memory`/`load_memory` to recall memories and
-  an `after_agent_callback` to persist each session, scoped by
+- **Memory Bank** is selected from `GOOGLE_CLOUD_AGENT_ENGINE_ID`, so a deployed
+  agent uses its runtime's Memory Bank automatically. Pointing at a *dedicated*
+  Memory Bank instance instead means passing a `memory_service_builder` to
+  `AdkApp` in `deploy_adk.py`. All agents (supervisor and sub-agents) use
+  `preload_memory`/`load_memory` to recall memories, and
+  `save_session_to_memory_callback` (`app/app_utils/memory_callbacks.py`)
+  persists each session through the `after_agent_callback`, scoped by
   `app_name` + `user_id`.
 
 ## Deployment
 
-### Docker
+The deploy is an SDK object deploy of `vertexai.agent_engines.AdkApp`: Agent
+Runtime builds the container from the pickled agent plus the bundled `app`
+package and a pinned requirements list. There is no Dockerfile and no Artifact
+Registry repository involved. `AdkApp` also registers the engine's operations for
+us — `:query`, `:streamQuery`, and the session/memory methods.
 
-```bash
-docker build -t geap-agent .
-docker run -p 8080:8080 --env-file .env geap-agent
-```
+Run in Cloud Shell:
 
-The image runs `uvicorn app.fast_api_app:app --host 0.0.0.0 --port 8080`.
+- `./build.sh` — installs `uv`, syncs dependencies, and runs the lint gate
+  (`ruff format --check` + `ruff check`).
+- `./deploy.sh` — sources `geap.deploy.env`, then `uv run python deploy_adk.py`.
+- `./deploy.personal.sh` — the same, against `deploy.personal.env`.
 
-### Google Cloud (Agent Engine)
+Both deploy scripts pin the engine to a single replica (`min_instances=1`,
+`max_instances=1`) so in-flight sessions see a stable process.
 
-The `agents-cli` manifest targets Agent Engine (`deployment_target: agent_runtime`).
-Helper scripts are provided (run in Cloud Shell):
-
-- `./build.sh` — installs `uv` + `agents-cli`, runs `agents-cli install` and lint.
-- `./deploy.sh` — deploys via `agents-cli deploy --deployment-target agent_runtime`,
-  overriding `AGENT_MODEL` / `MODEL_LOCATION` / `MCP_PORTFOLIO_URL` / `FINANCIAL_PLANNER_ENGINE`.
-  Both deploy scripts pin the engine to a single replica (`--min-instances 1
-  --max-instances 1`) so the in-memory session service (see below) sees a stable
-  process. Remove the flags to allow autoscaling (default max 10).
-
-For the personal `akapal-geap-ui` project (`adk-tut-499512` / `us-central1`,
-Artifact Registry repo `akapal-geap-ui`):
-
-- `./build.personal.sh` — same as build, but ensures the
-  `akapal-geap-ui` Artifact Registry repo exists in the deploy region.
-- `./deploy.personal.sh` — deploys with `AGENT_MODEL=gemini-2.5-flash`
-  (the cheapest Gemini text model) and the project's own MCP portfolio
-  service (`mcp-portfolio-947331501288.us-central1.run.app`).
+`STAGING_BUCKET` is required: Agent Runtime stages the pickle, the requirements
+file and the `app` package there. It is a deploy-time variable only — it is not
+passed to the runtime as an env var.
 
 ### Two environments, two self-contained env files
 
 Each environment has its own complete env file — the same variables in both,
-different values. Each script sources **exactly one** of them:
+different values. Each deploy script sources **exactly one** of them:
 
 | Script | Sources | Environment |
 |---|---|---|
-| `./build.sh` / `./deploy.sh` | `geap.deploy.env` | Office (default project `labs-gcp-msls-16495-1782829337`, `us-east1`) |
-| `./build.personal.sh` / `./deploy.personal.sh` | `deploy.personal.env` | Personal (`adk-tut-499512`, `us-central1`) |
+| `./deploy.sh` | `geap.deploy.env` | Office (default project `labs-gcp-msls-16495-1782829337`, `us-east1`) |
+| `./deploy.personal.sh` | `deploy.personal.env` | Personal (`adk-tut-508714`, `us-central1`) |
 
-Both files define the same variables (`PROJECT_ID`, `REGION`, `AGENT_MODEL`,
-`MODEL_LOCATION`, `MCP_PORTFOLIO_URL`, `FINANCIAL_PLANNER_ENGINE`) — so picking
-which file a script sources is what picks which environment it deploys to. To
-point an environment at a different financial planner, edit **only** that
-environment's file:
+Both files define the same variables (`PROJECT_ID`, `REGION`, `STAGING_BUCKET`,
+`AGENT_MODEL`, `MODEL_LOCATION`, `MCP_PORTFOLIO_URL`, `MCP_REGISTRY_SERVER`,
+`FINANCIAL_PLANNER_ENGINE`) — so picking which file a script sources is what
+picks which environment it deploys to. To point an environment at a different
+financial planner, edit **only** that environment's file:
 
 ```bash
 # deploy.personal.env — the planner's Agent Runtime engine (A2A)
-FINANCIAL_PLANNER_ENGINE=projects/adk-tut-499512/locations/us-central1/reasoningEngines/<id>
+FINANCIAL_PLANNER_ENGINE=projects/adk-tut-508714/locations/us-central1/reasoningEngines/<id>
 ```
 
 That single value is what the supervisor's `call_financial_planner` tool
@@ -251,11 +222,4 @@ That single value is what the supervisor's `call_financial_planner` tool
 - `deploy.personal.env` is **gitignored** — copy it per-machine and fill in
   your own values.
 
-Any value can still be overridden per-run:
-`PROJECT_ID=my-project ./deploy.sh`.
-
-## Feedback
-
-`POST /feedback` accepts a JSON body with the `Feedback` schema
-(`app/app_utils/typing.py`) and logs it to Cloud Logging when available,
-falling back to console logs.
+Any value can still be overridden per-run: `PROJECT_ID=my-project ./deploy.sh`.

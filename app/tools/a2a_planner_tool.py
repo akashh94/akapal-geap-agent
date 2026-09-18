@@ -54,7 +54,8 @@ def _client() -> vertexai.Client:
     return vertexai.Client(
         project=os.environ["GOOGLE_CLOUD_PROJECT"],
         # Runtime-injected agent-engine region first: GOOGLE_CLOUD_LOCATION is
-        # not necessarily the engine's region (mirrors app/app_utils/services.py).
+        # not necessarily the engine's region (AdkApp resolves its own services
+        # the same way).
         location=(
             os.environ.get("GOOGLE_CLOUD_AGENT_ENGINE_LOCATION")
             or os.environ.get("GOOGLE_CLOUD_LOCATION")

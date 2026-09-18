@@ -17,8 +17,7 @@ env/
 .env.*
 !.env.example
 
-# Personal build/deploy scripts and env config (personal GCP project)
-build.personal.sh
+# Personal deploy script and env config (personal GCP project)
 deploy.personal.sh
 deploy.personal.env
 

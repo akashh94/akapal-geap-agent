@@ -141,34 +141,30 @@ new preferences or goals so they persist for future sessions.
 
 ---
 
-## 4. One shared service for every surface
+## 4. One memory service, built by the template
 
-Both tools and the callback don't each build their own connection. There is a
-single process-wide service, cached and registered under `shared://` so the
-ADK web UI, the A2A path, and the Runner all share it:
+Neither tool nor the callback builds its own connection. `AdkApp.set_up()` builds
+a single memory service and hands that same instance to the `Runner` it creates,
+so `preload_memory`, `load_memory`, and the after-turn callback all share it:
 
 ```python
-# app/app_utils/services.py
-@functools.cache
-def get_memory_service():
-    from google.adk.memory import VertexAiMemoryBankService
-
-    ...
-    return VertexAiMemoryBankService(
-        project=...,
-        location=...,
-        agent_engine_id=...,
-    )
-
-
-_registry.register_memory_service("shared", lambda uri, **kw: get_memory_service())
+# vertexai/agent_engines/templates/adk.py, AdkApp.set_up()
+self._tmpl_attrs["memory_service"] = VertexAiMemoryBankService(
+    project=project,
+    location=agent_engine_location,
+    agent_engine_id=os.environ.get("GOOGLE_CLOUD_AGENT_ENGINE_ID"),
+)
 ```
 
-> **Why shared, why cached?** Building a cloud client is expensive (auth,
-> TLS). One instance created once and reused means a session started on one
-> surface is visible on every other surface, and no request pays the cost of a
-> fresh connection. `@functools.cache` is the standard-library way to make a
-> lazy singleton — no custom factory needed.
+> **Why one instance?** Building a cloud client is expensive (auth, TLS). One
+> instance reused across tools and callbacks means no request pays the cost of a
+> fresh connection, and a session written on one surface is visible to the
+> others.
+
+A local run has no `GOOGLE_CLOUD_AGENT_ENGINE_ID`, so the template falls back to
+`InMemoryMemoryService`; see
+[`MEMORY_BANK.md`](./MEMORY_BANK.md) for pointing a local run at a real Memory
+Bank.
 
 ---
 
@@ -276,7 +272,7 @@ in its prompt.*
 ## Reference
 
 - Implementation spec & config: [`MEMORY_BANK.md`](./MEMORY_BANK.md)
-- Write path: `app/app_utils/memory_callbacks.py` (callback),
-  `app/app_utils/services.py` (`get_memory_service`)
+- Write path: `app/app_utils/memory_callbacks.py` (callback), plus the
+  `memory_service` that `AdkApp` builds for the `Runner` (`deploy_adk.py`)
 - Read path: `preload_memory` / `load_memory` tools + `MEMORY:` prompt blocks
   in `app/agents/*.py` and `app/prompts/*.py`

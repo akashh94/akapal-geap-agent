@@ -5,11 +5,12 @@ Agent Runtime, why they behave so differently, and how to choose between them.
 
 > **Status (2026-09-18).** Two things changed since this was written:
 >
-> 1. **The supervisor no longer serves A2A.** `app/app_utils/a2a.py` and its
->    `/a2a/supervisor` routes were removed; the supervisor is now reached over the
->    platform's REST methods (`:query` / `:streamQuery`). It is therefore no
->    longer an Approach B example in production — read the B column as a
->    *technique* we still have working code for in the planner repo.
+> 1. **The supervisor is no longer app-served at all.** `app/app_utils/a2a.py`,
+>    `app/fast_api_app.py` and the `Dockerfile` were removed; it is now deployed
+>    as a `vertexai.agent_engines.AdkApp` object and the platform serves its
+>    operations (`:query` / `:streamQuery`). That is a *third* shape — neither A
+>    (platform-native `A2aAgent`) nor B (we own the container) — so read both
+>    columns below as techniques rather than as the current supervisor design.
 > 2. **§7.3's first bullet was wrong.** Live Agent Registry evidence shows the
 >    pendulum swings the other way: the platform-native planner is registered as
 >    `Framework: a2a` / `A2A_AGENT` with an indexed card and 3 skills, while the
@@ -35,7 +36,7 @@ We have two agents and, confusingly, two totally different deployment shapes:
 
 | Repo | Shape | Deployed by |
 |---|---|---|
-| `akapal-geap-agent` (supervisor) | app-served container, no A2A surface | `agents-cli deploy` |
+| `akapal-geap-agent` (supervisor) | SDK object deploy, no server | `deploy_adk.py` |
 | `akapal-geap-financial-planner` | platform-native object | `deploy_a2a.py` (SDK) |
 
 Both are on Agent Runtime. Historically both spoke A2A; as of 2026-09-18 only the
