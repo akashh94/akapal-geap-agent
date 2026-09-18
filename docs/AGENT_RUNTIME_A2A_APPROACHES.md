@@ -39,10 +39,12 @@ We have two agents and, confusingly, two totally different deployment shapes:
 | `akapal-geap-agent` (supervisor) | SDK object deploy, no server | `deploy_adk.py` |
 | `akapal-geap-financial-planner` | platform-native object | `deploy_a2a.py` (SDK) |
 
-Both are on Agent Runtime. Historically both spoke A2A; as of 2026-09-18 only the
-planner does. Yet one gets a public agent card and the other does not; one is
-deployed from a Dockerfile and the other by pickling a Python object; one has no
-serialization constraints and the other has several.
+Both are on Agent Runtime and both are now deployed the same way — an SDK object
+deploy with no server of our own. Historically both spoke A2A; as of 2026-09-18
+only the planner does. The two *techniques* below still differ in the ways that
+matter: in B you own the HTTP surface, get a public card, and ship files; in A the
+platform owns the surface, your card is not public, and you ship a pickled Python
+object with serialization constraints attached.
 
 That gap is not accidental, and it is not because "the platform works this way."
 It falls out of **one design decision** — who owns the HTTP surface — and
@@ -238,11 +240,11 @@ Python object**, and none of them would exist if we shipped a container.
 
 ### 4.1 What we write
 
-We write the server. In our repos it is a FastAPI app with A2A routes mounted
-onto it:
+We write the server. In both of our repos that used to be a FastAPI app with A2A
+routes mounted onto it — removed on 2026-09-18:
 
 ```python
-# akapal-geap-agent/app/app_utils/a2a.py  (and the planner's twin)
+# akapal-geap-agent/app/app_utils/a2a.py  (and the planner's twin) — both removed
 agent_card = await AgentCardBuilder(
     agent=agent,
     capabilities=...,
@@ -391,33 +393,33 @@ public.
 
 ### 7.1 Current state
 
-We are running **both**, plus a third deployment:
+We are running exactly one deployment of each agent, and both are Approach A:
 
 | Deployment | Approach | Repo | Card | Used by |
 |---|---|---|---|---|
-| Supervisor on Agent Runtime | **B** | `akapal-geap-agent` | Public | Inbound clients |
-| Planner on Agent Runtime | **A** | `akapal-geap-financial-planner` | Not public | Supervisor |
-| Planner on Cloud Run | **B** | `akapal-geap-financial-planner` | Public | Rollback |
+| Supervisor on Agent Runtime | **A** (`AdkApp`, no server) | `akapal-geap-agent` | Not public | Inbound REST clients (`:query` / `:streamQuery`) |
+| Planner on Agent Runtime | **A** (`A2aAgent`) | `akapal-geap-financial-planner` | Not public | Supervisor |
 
-So the planner simultaneously maintains an A-approach and a B-approach
-deployment of the same agent, and the B-approach one already works and already
-has a public card.
+No Approach B deployment remains: the planner's Cloud Run twin was removed on
+2026-09-18, the same day the supervisor's app-served surface went.
 
 ### 7.2 The observation that follows
 
-`app/fast_api_app.py` in the planner repo is an Approach B deployment whose
-container is built to run on Agent Runtime. Its Dockerfile already satisfies the
-runtime contract (`EXPOSE 8080`, binds via `--port "${PORT:-8080}"`). Its
-`attach_a2a_routes(rpc_path=f"/a2a/{agent.name}")` already produces a public
-card at:
+*(Historical — the artefacts described here were removed on 2026-09-18. Kept
+because this is the reasoning that led to unifying on A.)*
+
+The planner repo used to carry an Approach B deployment whose container was
+built to run on Agent Runtime. Its Dockerfile satisfied the runtime contract
+(`EXPOSE 8080`, binds via `--port "${PORT:-8080}"`), and its
+`attach_a2a_routes(rpc_path=f"/a2a/{agent.name}")` produced a public card at:
 
 ```
 /a2a/financial_planner/.well-known/agent-card.json
 ```
 
-That is the same pattern as the supervisor. Nothing about "both agents on
-GEAP" prevents deploying *that* to Agent Runtime instead of object-deploying
-the `A2aAgent`.
+That was the same pattern as the supervisor's. Nothing about "both agents on
+GEAP" prevented deploying *that* to Agent Runtime instead of object-deploying
+the `A2aAgent` — but the opposite was chosen: both B paths were deleted.
 
 ### 7.3 What unification on B would remove
 
@@ -436,9 +438,8 @@ the `A2aAgent`.
 - The second, bespoke deploy toolchain
 
 It would also make `call_financial_planner` simpler: with a public card,
-`RemoteA2aAgent` — which your own doc says *"the supervisor's RemoteA2aAgent
-consumes it directly"* regarding the Cloud Run planner — becomes available
-again, instead of the manual `agent_engines.get()` + `on_message_send()` call.
+`RemoteA2aAgent` becomes available again, instead of the manual
+`agent_engines.get()` + `on_message_send()` call.
 
 ### 7.4 What it costs
 
@@ -486,7 +487,7 @@ Specifically:
 | §9: "`handle_authenticated_agent_card` does not exist" | Resolved: the card **is** retrievable via Agent Registry (`card.content`), not via `{base}/v1/card`. The method's absence in our pin is still real. |
 | §9: "the planner's card is not retrievable by any route we found" | Now resolved: the card **is** retrievable — stored inline in the Agent Registry `Agent` resource as `card.content` (`A2A_AGENT_CARD`), with 3 skills indexed. It is simply not served at a public `.well-known` path. |
 | "the supervisor never imports planner code" | Correct and important. |
-| §3 / §7.2: the supervisor as a live Approach B example | Superseded — its A2A surface was removed on 2026-09-18. The planner repo still carries a working B code path. |
+| §3 / §7.2: the supervisor as a live Approach B example | Superseded — its A2A surface was removed on 2026-09-18, and the planner's B code path (`app/fast_api_app.py` + `Dockerfile`) was removed the same day. No Approach B deployment remains. |
 
 Read that document for *what happens on the wire*; read this one for *why the
 shapes differ*.

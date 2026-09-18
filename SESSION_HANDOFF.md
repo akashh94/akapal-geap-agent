@@ -1,5 +1,11 @@
 # Session Handoff — GEAP Agent / Financial Planner Deployment (2026-08-17/18)
 
+> **Superseded (2026-09-18).** This records the Model A / Cloud Run era and is
+> kept as history. The planner now runs on Agent Runtime as a native A2A agent
+> and the supervisor reaches it through the Agent Platform SDK; the Cloud Run
+> path has been removed. For the current design see
+> [`docs/AGENT_RUNTIME_A2A.md`](docs/AGENT_RUNTIME_A2A.md).
+
 ## Current state (verified working) — Model A (Cloud Run)
 
 **Architecture: planner on Cloud Run, supervisor on Agent Engine**

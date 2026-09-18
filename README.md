@@ -11,6 +11,9 @@ There is no HTTP server in this repo. The deploy is an SDK object deploy of a
 Long-term, cross-session memory is provided by Vertex AI Memory Bank — see
 [docs/MEMORY_BANK.md](docs/MEMORY_BANK.md) for the full implementation guide.
 
+Start with [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — the whole system (both
+agents, the MCP server, memory) explained from first principles with diagrams.
+
 How the supervisor and the separately-deployed financial planner reach each
 other over A2A on Agent Runtime — including the deploy order, the required APIs
 and IAM, and the failure modes to expect — is documented in
@@ -64,7 +67,7 @@ GOOGLE_CLOUD_PROJECT=your-project-id
 GOOGLE_CLOUD_LOCATION=us-central1
 AGENT_MODEL=gemini-2.5-flash
 MODEL_LOCATION=global
-MCP_PORTFOLIO_URL=http://localhost:8080/sse
+MCP_PORTFOLIO_URL=http://localhost:8080/mcp
 ```
 
 Locally, sessions and memory are in-memory. After deploying, `AdkApp` switches to
@@ -74,7 +77,7 @@ Vertex AI sessions and Vertex AI Memory Bank automatically — see the
 ### Notes
 
 - Several sub-agents connect to an MCP portfolio server at `MCP_PORTFOLIO_URL`
-  (default `http://localhost:8080/sse`). The agent starts without it, and those
+  (default `http://localhost:8080/mcp`). The agent starts without it, and those
   agents degrade to an informational tool rather than failing the turn.
 - `setup_telemetry()` and the Cloud Logging exporters degrade gracefully with
   warnings when credentials are missing.
@@ -88,7 +91,7 @@ Vertex AI sessions and Vertex AI Memory Bank automatically — see the
 | `STAGING_BUCKET` | — | GCS bucket for object-deploy artifacts (deploy-time only) |
 | `AGENT_MODEL` | `gemini-2.5-flash` | Model used by all agents |
 | `MODEL_LOCATION` | `global` | Vertex AI endpoint location for model calls |
-| `MCP_PORTFOLIO_URL` | `http://localhost:8080/sse` | MCP portfolio server (fallback when `MCP_REGISTRY_SERVER` is unset) |
+| `MCP_PORTFOLIO_URL` | `http://localhost:8080/mcp` | MCP portfolio server (fallback when `MCP_REGISTRY_SERVER` is unset) |
 | `MCP_REGISTRY_PROJECT_ID` | `$PROJECT_ID` | GCP project hosting the Agent Registry |
 | `MCP_REGISTRY_LOCATION` | `global` | Location of the Agent Registry resources |
 | `MCP_REGISTRY_SERVER` | — | Full name of the registered MCP server (`projects/.../locations/.../mcpServers/...`); when set, agents connect via Agent Registry instead of the raw URL |
@@ -118,7 +121,7 @@ Vertex AI sessions and Vertex AI Memory Bank automatically — see the
 
 - **`MCP_PORTFOLIO_URL`** — URL of the MCP portfolio server used by the
   portfolio/trade/market-research/support agents via `ResilientMcpToolset`.
-  Default `http://localhost:8080/sse` for local dev. Used as a fallback when
+  Default `http://localhost:8080/mcp` for local dev. Used as a fallback when
   `MCP_REGISTRY_SERVER` is not set. The agents degrade gracefully (an
   informational tool) if the server is unreachable — they won't crash the turn.
 

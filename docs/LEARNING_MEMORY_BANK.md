@@ -178,7 +178,7 @@ previously saying **"I prefer conservative, low-volatility investments."**
 flowchart LR
     User["User says:<br/>'Should I increase<br/>my monthly investment?'"]
 
-    subgraph Runner["geap-agent Runner (shared:// memory)"]
+    subgraph Runner["geap-agent Runner (runtime Memory Bank)"]
         Pre["preload_memory<br/>auto-injects relevant facts"]
         Llm["Supervisor LLM decides"]
         Cal["Call financial planner<br/>or a sub-agent"]

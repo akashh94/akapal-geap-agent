@@ -78,7 +78,7 @@ flowchart TB
     end
 
     subgraph Sup["akapal-geap-agent — Agent Runtime"]
-        SupApp["FastAPI app<br/>(ADK web + API routes)"]
+        SupApp["AdkApp object deploy<br/>(platform-served :query / :streamQuery)"]
         Tool["call_financial_planner<br/>(FunctionTool)"]
         Runner1["Runner<br/>supervisor + 5 sub-agents"]
     end
@@ -180,7 +180,7 @@ where `{base}` is
 `https://{region}-aiplatform.googleapis.com/v1beta1/{engine-resource}/a2a`.
 
 You cannot mount your own routes on this surface. It is a fixed API, which is
-exactly why the planner's Cloud Run web server is irrelevant to it.
+why the planner needs no web server of its own on this path.
 
 ### 4.3 The executor — the bridge from A2A to ADK
 
@@ -348,7 +348,6 @@ gcloud projects add-iam-policy-binding adk-tut-508714 \
 | `app/a2a_app.py` | the `A2aAgent`: hand-written card + executor factory |
 | `deploy_a2a.py` | SDK object deploy (`create(agent=a2a_agent, …)`) |
 | `deploy.a2a.sh` / `deploy.personal.a2a.sh` | env-driven wrappers |
-| `app/fast_api_app.py` | **unchanged** — still the Cloud Run path |
 
 **`akapal-geap-agent`**
 

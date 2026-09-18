@@ -34,13 +34,13 @@ Both repositories implement the same pattern:
 ```mermaid
 flowchart LR
     subgraph Clients["Clients"]
-        UI["ADK Web UI<br/>(/dev-ui, /api)"]
-        A2AC["A2A Clients<br/>(/a2a/supervisor)"]
+        UI["REST clients<br/>(:query / :streamQuery)"]
+        A2AC["ADK Web UI<br/>(local `adk web` only)"]
     end
 
-    subgraph App["geap-agent — FastAPI app"]
-        Runner["Runner<br/>(shared across surfaces)"]
-        MemSvc["MemoryService<br/>VertexAiMemoryBankService<br/>(shared://)"]
+    subgraph App["geap-agent — AdkApp object deploy"]
+        Runner["Runner<br/>(platform-served)"]
+        MemSvc["MemoryService<br/>VertexAiMemoryBankService"]
         Runner -->|session / artifacts / memory| MemSvc
     end
 
@@ -52,7 +52,7 @@ flowchart LR
         Sup --> Mort["mortgage_agent"]
     end
 
-    subgraph PlannerApp["akapal-geap-financial-planner — Cloud Run"]
+    subgraph PlannerApp["akapal-geap-financial-planner — Agent Runtime"]
         FP["financial_planner"]
         FPRunner["Runner"]
         FP --> FPRunner --> FPMemSvc["MemoryService"]
@@ -143,8 +143,8 @@ memory service itself and passes it to a `Runner`:
 
 ```python
 runner = Runner(
-    agent=root_agent,
-    app_name=root_agent.name,
+    agent=agent,
+    app_name=agent.name,
     session_service=services.get_session_service(),
     artifact_service=services.get_artifact_service(),
     memory_service=services.get_memory_service(),
