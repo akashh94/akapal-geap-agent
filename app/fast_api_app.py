@@ -8,7 +8,8 @@ from google.adk.cli.fast_api import get_fast_api_app
 from google.cloud import logging as google_cloud_logging
 
 # Imported for its side effect: `services` registers the shared:// factories in
-# ADK's service registry.
+# ADK's service registry. The *_service_uri arguments below are what select them —
+# without those URIs ADK would fall back to in-memory services.
 from app.app_utils import services  # noqa: F401
 from app.app_utils.telemetry import setup_telemetry
 from app.app_utils.typing import Feedback
@@ -57,6 +58,14 @@ app: FastAPI = get_fast_api_app(
     allow_origins=allow_origin,
     auto_create_session=True,
     gemini_enterprise_app_name="app",
+    # Select the shared:// factories registered by app.app_utils.services. These
+    # resolve to Vertex AI sessions and Memory Bank when
+    # GOOGLE_CLOUD_AGENT_ENGINE_ID is present, and to in-memory services
+    # otherwise. Without them ADK defaults to in-memory, and the memory
+    # callbacks have nowhere to write.
+    session_service_uri="shared://session",
+    artifact_service_uri="shared://artifact",
+    memory_service_uri="shared://memory",
 )
 app.title = "geap-agents"
 app.description = "API for interacting with the Agent geap-agents"
